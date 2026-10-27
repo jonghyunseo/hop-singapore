@@ -1,0 +1,17 @@
+.gradle/
+.kotlin/
+.local/
+local.properties
+**/build/
+.idea/
+*.iml
+*.jks
+*.keystore
+*.p12
+*.dpapi
+signing.properties
+*.apk
+*.apk.sha256
+/deliverables/
+/work/
+/design-system/
