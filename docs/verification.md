@@ -1,44 +1,34 @@
-# Android MVP 검증 — 2026-10-28
+﻿# Android 검증 기록
 
-## GitHub 배포 0.1.1
+## 0.2.0 — 2026-10-28
 
-- `:app:assembleRelease` 및 필수 release lint 통과. `versionCode=2`, `versionName=0.1.1`, `minSdk=26`, `targetSdk=36`.
-- `apksigner verify` 통과. release APK의 `debuggable` 플래그 없음. arm64-v8a / armeabi-v7a / x86 / x86_64를 포함한 단일 APK.
-- 전용 테스트 에뮬레이터에서 개발판을 제거하고 실제 서명된 release APK를 설치·실행. Raffles Place 430m, 도보 버튼, 플로팅 메뉴 확인. AndroidRuntime 오류 로그 없음.
-- 배포 서명 인증서 SHA-256: `1f7fb8b9bd25d26ba228b41724a305a83fec9f2fa43726e74176da6e224221f6`.
-- 아래 4개 핵심 로직 테스트와 공유·저장 흐름은 같은 기능 코드의 개발 빌드에서 확인한 증거를 재사용했다. 이번 배포에서는 버전·서명 설정과 배포 문서를 변경했다.
-- 공개 배포 파일은 GitHub Releases에서 제공한다. 아래 개발용 APK·내부 테스트 출력 경로는 로컬 검증 기록이며 저장소에 바이너리로 포함하지 않는다.
+실제 Kotlin/Compose 네이티브 APK를 대상으로 핵심 계산, 변경된 화면, 파일 가져오기만 점검했다. 테스트용으로 만든 Google 저장 목록 형식의 파일을 사용했으며 개인 Google 계정 전체 내보내기를 검증한 것은 아니다.
 
-검증 대상은 실제 네이티브 Android APK입니다. 브라우저 모형의 결과와 구분합니다. 사용자의 요청에 따라 전체 테스트 체계 확대 대신 빌드·핵심 계산·핵심 사용자 흐름에 집중했습니다.
+- 단위 테스트 7개, 실패 0: 기존 거리·역 순위·반경·공유 좌표·도메인 4개 + Takeout 설명문/따옴표·줄바꿈 메모/좌표 없는 항목 유지, 카메라 좌표·해외 장소 제외, ZIP 다중 목록 읽기 3개.
+- `:app:assembleRelease`, 필수 `lintVitalRelease`, `apksigner verify` 성공. `versionName=0.2.0`, `versionCode=3`.
+- Android 16/API 36 전용 `hop_api36` 에뮬레이터에서 기존 0.1.1 release 위에 `adb install -r` 성공. 기존 장소 유지.
+- 지도 Canvas UI bounds: 세로 `[0,0][1080,2400]`, 가로 `[0,0][2400,1080]`. 전체 화면 지도 위에 검색·하차역 카드·메뉴 표시. Raffles Place 430m와 도보 길찾기 확인.
+- 가까운 역 3곳 비교 시트에 Raffles Place/Esplanade/Bayfront와 도보 버튼 표시. 초기 반쯤 펼쳐짐 때문에 버튼이 내려가 있던 부분은 완전히 펼치는 시트로 수정 후 재확인.
+- Android 시스템 파일 선택기로 Takeout 형식 ZIP 열기: 전체 3곳 중 위치 있는 2곳 선택, 좌표 없는 1곳 유지, 관련 없는 HTML 파일 제외.
+- 선택 저장 후 미확인 장소가 검토 화면에 남음. National Gallery Singapore 검색 결과를 선택하고 위치를 확인해 가져오기 완료.
+- 앱 강제 종료·재실행 후 Singapore Flyer와 National Gallery Singapore 확인. 테스트용 파일의 중복 제외와 같은 위치 보완 경로를 확인.
+- 라이트/다크, 세로/가로 화면을 실제 캡처해 검토. 가로 화면의 지도 출처 표시가 카드에 겹치는 부분을 오른쪽으로 이동.
 
-## 통과한 확인
-
-- `:app:assembleDebug` 성공. 개발용 서명 APK 생성과 `apksigner verify` 통과.
-- `:app:testDebugUnitTest` 4개 성공, 실패 0: 거리/정렬/환승역 중복, 반경 필터, 공유 좌표 해석, 허용 도메인/싱가포르 범위.
-- Android 16/API 36의 전용 에뮬레이터에 APK 설치·실행 성공.
-- 첫 화면에서 멀라이언 → Raffles Place 430m 표시. 도보 확인 버튼과 플로팅 메뉴를 함께 확인.
-- 역별 화면: Maxwell 반경 800m에서 3곳, 400m에서 2곳.
-- ACTION_SEND로 Singapore Flyer 좌표 링크 수신 → 위치 검토 → 저장. 장소 수 6 → 7.
-- 같은 공유를 반복해도 7곳 유지.
-- 방문 표시 후 강제 종료·재실행해 장소 7곳과 방문 상태 유지.
-- 공유 화면을 간소화한 최종 빌드에서 저장 버튼 고정 표시와 중복 방지를 재확인.
-- Android 시스템 파일 선택기로 샘플 GeoJSON 2곳을 검토·가져오기. 중복 Flyer는 제외하고 National Gallery 1곳만 추가되어 총 8곳.
-- 라이트 지도·역별·공유 화면과 다크 지도 화면을 실제 캡처하여 확인. AndroidRuntime 오류 로그 없음.
-
-Windows 시스템 경로의 잘못된 따옴표로 테스트 JVM 시작이 한 차례 실패했습니다. 시스템 경로를 수정하지 않고 `-Djava.library.path=C:\Windows\System32`를 주어 실행했고, 최종 4개 테스트가 통과했습니다.
-
-## 범위와 한계
-
-- 물리 기기·다양한 제조사·태블릿·최대 글자 크기·TalkBack 전체 검수는 하지 않았습니다.
-- 온라인 Geocoder, 실제 Google Maps 앱이 생성하는 모든 단축 링크, GPS의 실제 현장 정확도, 상세 지도 네트워크 장애 조합은 포괄 검증하지 않았습니다. 실패 시 지도 핀/수동 좌표와 간략 지도로 진행할 수 있습니다.
-- GeoJSON의 정상 가져오기 경로는 확인했습니다. 모든 Takeout 변형, CSV 경계 사례, ZIP은 이번 최소 점검 범위에 포함하지 않았으며 ZIP은 지원하지 않습니다.
-- 지도는 역 대표점 기준 직선거리입니다. 출구별 접근성, 실제 도보 최단 경로, 실시간 운영 장애를 보장하지 않습니다.
-- APK는 개인 테스트용 개발 서명입니다. Play Store 출시 검수나 운영 서버·Google 즐겨찾기 자동 동기화는 범위 밖입니다.
+핵심 로직 테스트는 프로젝트의 Windows JVM 경로 문제를 피하기 위해 `-Djava.library.path=C:\Windows\System32` 옵션으로 실행했다. 시스템 설정은 변경하지 않았다. UI 안내 문구·시트 높이·가로 출처 배치의 후속 조정에는 유효한 로직 테스트 결과를 재사용했다.
 
 ## 증거
 
-- `smoke-results.json`: 핵심 사용자 흐름 결과.
-- `app/build/test-results/testDebugUnitTest/TEST-app.hop.singapore.CoreTest.xml`: 테스트 4개 결과.
-- `docs/images/android-map.png`, `android-stations.png`, `android-share.png`, `android-dark.png`: 실제 에뮬레이터 화면.
-- `hop-0.1.0-debug.apk`: 최종 설치 파일.
-- `hop-0.1.0-debug.apk.sha256`: 파일 해시.
+- `app/build/test-results/testDebugUnitTest/TEST-app.hop.singapore.CoreTest.xml` 및 `TEST-app.hop.singapore.ImportTest.xml` (로컬 빌드 출력).
+- `docs/images/android-map.png`, `android-saved.png`, `android-import.png`, `android-import-help.png`, `android-dark.png`: 에뮬레이터 실제 캡처.
+- GitHub Release의 `hop-0.2.0.apk` 및 SHA-256 파일. 전용 배포 서명 인증서 SHA-256은 `1f7fb8b9bd25d26ba228b41724a305a83fec9f2fa43726e74176da6e224221f6`로 0.1.1과 동일하다.
+
+## 이전 버전에서 확인하고 재사용한 범위
+
+0.1.0/0.1.1에서 반경 800m/400m의 장소 수, ACTION_SEND 수신·저장·중복 제외, 방문 체크와 재실행 복원, GeoJSON 가져오기, 서명된 release 설치를 확인했다. 해당 기능의 전체 회귀 검사를 반복하지 않았다. `scripts/smoke_android.py`는 초기 6개 장소 상태의 디버그 APK에 대한 기존 핵심 흐름 스크립트다.
+
+## 한계
+
+- 물리 기기, 다양한 제조사, 태블릿, 최대 글자 크기, TalkBack 전체 검수는 하지 않았다.
+- 모든 Google Takeout 변형, 대형 ZIP, 모든 단축 URL, Geocoder 장애 조합은 포괄 검증하지 않았다. 이름 검색 결과는 사용자가 확인해야 한다.
+- 파일 가져오기를 구현했으며 Google 계정 자동 동기화, 공유 목록 링크 전체 읽기는 지원하지 않는다. 검토 목록은 앱 프로세스 종료 시 다시 파일에서 열어야 한다.
+- 역 대표점 기준 직선거리다. 실제 도보거리, 출구별 접근성, 실시간 열차 운행은 포함하지 않는다.

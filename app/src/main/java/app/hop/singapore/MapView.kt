@@ -45,14 +45,15 @@ fun worldY(lat: Double): Double { val s = sin(lat.coerceIn(-85.0,85.0) * Math.PI
 private fun fromWorld(x: Double, y: Double) = GeoPoint(atan(sinh(Math.PI * (1 - 2 * y))) * 180 / Math.PI, x * 360 - 180)
 @Stable class MapCamera(lat: Double = 1.2878, lon: Double = 103.8529, zoom: Double = 15.3) {
     var point by mutableStateOf(GeoPoint(lat, lon)); var zoom by mutableDoubleStateOf(zoom)
+    var viewportShift by mutableStateOf(Offset.Zero)
     fun focus(p: GeoPoint, z: Double = 15.3) { point = p; zoom = z }
-    fun screen(p: GeoPoint, width: Int, height: Int): Offset { val scale = 256 * 2.0.pow(zoom); return Offset(((worldX(p.lon) - worldX(point.lon)) * scale + width / 2).toFloat(), ((worldY(p.lat) - worldY(point.lat)) * scale + height / 2).toFloat()) }
-    fun at(offset: Offset, width: Int, height: Int): GeoPoint { val scale = 256 * 2.0.pow(zoom); return fromWorld(worldX(point.lon) + (offset.x - width / 2) / scale, worldY(point.lat) + (offset.y - height / 2) / scale) }
+    fun screen(p: GeoPoint, width: Int, height: Int): Offset { val scale = 256 * 2.0.pow(zoom); return Offset(((worldX(p.lon) - worldX(point.lon)) * scale + width / 2 + viewportShift.x).toFloat(), ((worldY(p.lat) - worldY(point.lat)) * scale + height / 2 + viewportShift.y).toFloat()) }
+    fun at(offset: Offset, width: Int, height: Int): GeoPoint { val scale = 256 * 2.0.pow(zoom); return fromWorld(worldX(point.lon) + (offset.x - width / 2 - viewportShift.x) / scale, worldY(point.lat) + (offset.y - height / 2 - viewportShift.y) / scale) }
     fun transform(centroid: Offset, pan: Offset, factor: Float, size: IntSize) {
         val anchor = at(centroid, size.width, size.height)
         zoom = (zoom + log2(factor.toDouble())).coerceIn(10.0, 19.0)
         val scale = 256 * 2.0.pow(zoom)
-        val next = fromWorld(worldX(anchor.lon) - (centroid.x - size.width / 2 + pan.x) / scale, worldY(anchor.lat) - (centroid.y - size.height / 2 + pan.y) / scale)
+        val next = fromWorld(worldX(anchor.lon) - (centroid.x - size.width / 2 - viewportShift.x + pan.x) / scale, worldY(anchor.lat) - (centroid.y - size.height / 2 - viewportShift.y + pan.y) / scale)
         point = GeoPoint(next.lat.coerceIn(1.12,1.52), next.lon.coerceIn(103.55,104.16))
     }
     companion object { val StateSaver = Saver<MapCamera,List<Double>>(save = { listOf(it.point.lat,it.point.lon,it.zoom) }, restore = { MapCamera(it[0],it[1],it[2]) }) }
@@ -93,6 +94,7 @@ private data class PreparedFeature(val kind: String, val name: String, val path:
     rail: RailData, places: List<Place>, camera: MapCamera, modifier: Modifier = Modifier,
     selected: Place? = null, selectedStation: Station? = null, radius: Int? = null,
     detailed: Boolean = false, currentLocation: GeoPoint? = null,
+    controlsBottom: Dp = 0.dp, viewportTop: Dp = 0.dp, viewportBottom: Dp = 0.dp, viewportLeft: Dp = 0.dp,
     onPlace: (Place) -> Unit = {}, onStation: (Station) -> Unit = {}, onLongPress: (GeoPoint) -> Unit = {}, interactive: Boolean = true
 ) {
     val colors = MaterialTheme.colorScheme; val primary = colors.primary; val surface = colors.surface; val ink = colors.onSurface
@@ -100,11 +102,12 @@ private data class PreparedFeature(val kind: String, val name: String, val path:
     val ctx = LocalContext.current; val uri = LocalUriHandler.current; val density = LocalDensity.current.density
     var size by remember { mutableStateOf(IntSize.Zero) }
     val cache = remember(ctx) { TileCache(ctx) }; val bitmaps = remember { mutableStateMapOf<String,Bitmap>() }
-    val zoom = camera.zoom; val center = camera.point
-    val tiles = remember(zoom,center,size,detailed) {
+    SideEffect { camera.viewportShift = Offset(viewportLeft.value * density / 2, (viewportTop - viewportBottom).value * density / 2) }
+    val zoom = camera.zoom; val center = camera.point; val shift = camera.viewportShift
+    val tiles = remember(zoom,center,size,detailed,shift) {
         if(!detailed || size.width == 0) emptyList() else {
             val z = floor(zoom).toInt(); val n = 2.0.pow(z); val tileSize = 256 * 2.0.pow(zoom-z)
-            val cx = worldX(center.lon) * n; val cy = worldY(center.lat) * n
+            val cx = worldX(center.lon) * n - shift.x / tileSize; val cy = worldY(center.lat) * n - shift.y / tileSize
             buildList { for(x in floor(cx-size.width/2/tileSize).toInt()..floor(cx+size.width/2/tileSize).toInt()) for(y in floor(cy-size.height/2/tileSize).toInt()..floor(cy+size.height/2/tileSize).toInt()) add(Tile(z,x,y)) }
         }
     }
@@ -157,12 +160,12 @@ private data class PreparedFeature(val kind: String, val name: String, val path:
             selectedStation?.let { s -> val p=xy(s.point); paint.textSize=11*density; paint.color=ink.toArgb(); drawContext.canvas.nativeCanvas.drawText(s.name,(p.x+9*density).coerceAtMost(size.width-paint.measureText(s.name)-4*density),p.y+17*density,paint) }
             currentLocation?.let { drawCircle(primary.copy(alpha=.15f),22*density,xy(it)); drawCircle(Color.White,9*density,xy(it)); drawCircle(primary,6*density,xy(it)) }
         }
-        Surface(Modifier.align(Alignment.BottomStart).padding(8.dp),shape=RoundedCornerShape(10.dp),color=colors.surface.copy(alpha=.95f)) {
+        Surface(Modifier.align(if(viewportLeft>0.dp) Alignment.BottomEnd else Alignment.BottomStart).padding(start=8.dp,end=if(viewportLeft>0.dp) 72.dp else 0.dp,bottom=controlsBottom+8.dp),shape=RoundedCornerShape(10.dp),color=colors.surface.copy(alpha=.95f)) {
             TextButton(onClick={uri.openUri("https://www.openstreetmap.org/copyright")},contentPadding=PaddingValues(horizontal=8.dp,vertical=0.dp),modifier=Modifier.heightIn(min=48.dp)) { Text("© OpenStreetMap · sgraildata",fontSize=10.sp) }
         }
-        if(interactive) Column(Modifier.align(Alignment.BottomEnd).padding(10.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
+        if(interactive) Column(Modifier.align(Alignment.BottomEnd).padding(end=10.dp,bottom=controlsBottom+10.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
             listOf(Icons.Rounded.Add to 1.0,Icons.Rounded.Remove to -1.0).forEach { (icon,delta) -> FilledTonalIconButton(onClick={camera.zoom=(camera.zoom+delta).coerceIn(10.0,19.0)},modifier=Modifier.size(48.dp),shape=CircleShape) { Icon(icon,if(delta>0) "지도 확대" else "지도 축소") } }
         }
-        if(detailed && tiles.isNotEmpty() && tiles.none { bitmaps.containsKey(it.key) }) Surface(Modifier.align(Alignment.TopStart).padding(8.dp),shape=CircleShape) { Text("상세 지도 연결 중 · 간략 지도 사용 가능",Modifier.padding(8.dp),fontSize=11.sp) }
+        if(detailed && tiles.isNotEmpty() && tiles.none { bitmaps.containsKey(it.key) }) Surface(Modifier.align(Alignment.TopStart).padding(start=8.dp,top=viewportTop+8.dp),shape=CircleShape) { Text("상세 지도 연결 중 · 간략 지도 사용 가능",Modifier.padding(8.dp),fontSize=11.sp) }
     }
 }

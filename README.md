@@ -1,6 +1,6 @@
 # hop — 싱가포르 MRT 여행 앱
 
-Kotlin + Jetpack Compose로 구현한 싱가포르 여행용 Android MVP입니다. Blue Hour 테마와 플로팅 메뉴를 적용했습니다. 실제 앱 소스는 `app/`입니다.
+Kotlin + Jetpack Compose로 구현한 싱가포르 여행용 Android MVP입니다. 전체 화면 지도, Blue Hour 테마와 컴팩트한 플로팅 메뉴를 적용했습니다. 실제 앱 소스는 `app/`입니다.
 
 ## 설치와 실행
 
@@ -14,7 +14,7 @@ Kotlin + Jetpack Compose로 구현한 싱가포르 여행용 Android MVP입니�
 
 이전 `0.1.0-debug` APK와는 서명이 다릅니다. 개발판이 설치되어 있다면 보관할 장소·메모를 먼저 확인한 뒤 삭제하고 배포판을 설치하세요. 삭제 시 개발판의 로컬 데이터도 삭제됩니다. `0.1.1` 이후 배포판은 같은 서명 키로 업데이트합니다.
 
-<p><img src="docs/images/android-map.png" alt="MRT 지도와 가까운 역" width="240"> <img src="docs/images/android-stations.png" alt="역별 저장 장소" width="240"> <img src="docs/images/android-share.png" alt="공유받은 장소 저장" width="240"></p>
+<p><img src="docs/images/android-map.png" alt="전체 화면 지도와 하차역 카드" width="240"> <img src="docs/images/android-saved.png" alt="컴팩트한 저장 장소 목록" width="240"> <img src="docs/images/android-import.png" alt="Google 지도 즐겨찾기 가져오기 검토" width="240"></p>
 
 ## 구현한 핵심 기능
 
@@ -25,7 +25,8 @@ Kotlin + Jetpack Compose로 구현한 싱가포르 여행용 Android MVP입니�
 - 원자적 파일 저장. 앱 재실행 후 장소·방문 상태·메모와 선택 설정 복원.
 - Android `ACTION_SEND` 공유 수신, Google Maps 링크 붙여넣기, 장소명 검색, 좌표 입력, 지도 핀 지정.
 - 공유 데이터는 검토 화면을 거쳐 저장. 링크의 지도 카메라 좌표를 장소 좌표로 오인하지 않음.
-- CSV/GeoJSON 파일 선택·검토·가져오기. 중복 및 좌표 누락·싱가포르 밖의 항목을 구분.
+- Google Takeout ZIP/CSV와 GeoJSON 파일 가져오기. 목록 이름과 메모를 유지하고, 좌표 없는 항목은 검색·핀으로 보완. 선택 저장, 중복 제외, 미확인 항목 유지.
+- 화면 끝까지 채우는 지도. 하차역 카드는 작게 표시하고 3개 역 비교는 펼쳐서 확인.
 - 라이트·다크·시스템 테마. 측정한 메뉴 높이에 따라 하단 여백을 확보하는 플로팅 메뉴.
 - 내 위치는 버튼을 누를 때만 권한 요청. 백그라운드 위치 수집 없음.
 
@@ -39,18 +40,29 @@ Kotlin + Jetpack Compose로 구현한 싱가포르 여행용 Android MVP입니�
 
 ## 파일 가져오기
 
-상단 ‘싱가포르’ → ‘CSV · GeoJSON 가져오기’. 최대 2MB, 1,000개 항목입니다. 사용자 선택 파일만 읽고 저장소 전체 권한은 요구하지 않습니다.
+**저장한 곳 → Google 지도 즐겨찾기 가져오기** (또는 메뉴에서 같은 항목).
+
+1. [Google Takeout](https://takeout.google.com/)에서 **Saved(저장됨)**를 선택하고 ZIP으로 내보냅니다. [Google 공식 안내](https://support.google.com/maps/answer/7280933?hl=ko).
+2. hop의 ‘다운로드한 파일 선택’에서 ZIP 또는 압축을 푼 CSV를 고릅니다. 기존 Point GeoJSON도 지원합니다.
+3. 이름·메모·위치를 검토하고 선택한 장소를 가져옵니다. 좌표가 없는 항목은 ‘위치 확인’에서 검색 결과를 선택하거나 지도 핀·좌표를 지정하세요.
+
+확인된 장소를 저장해도 나머지 항목은 검토 화면에 남습니다. 이 화면을 닫거나 앱 프로세스가 종료되면 미저장 검토 목록은 파일에서 다시 열어야 합니다. 이미 저장한 장소는 유지되며 재가져오기 시 같은 이름·15m 이내 위치의 중복을 제외합니다.
+
+CSV/GeoJSON은 2MB, ZIP은 압축 전후 각각 20MB, 총 1,000개 항목까지 지원합니다. 사용자 선택 파일만 읽고 저장소 전체 권한은 요구하지 않습니다. ZIP은 파일 시스템에 압축 해제하지 않습니다.
 
 CSV의 예:
 
 ```csv
-name,latitude,longitude,memo
-Singapore Flyer,1.2894095,103.8631218,해 질 무렵
+Title,Note,URL
+Singapore Flyer,해 질 무렵,"https://www.google.com/maps/?q=1.2894095,103.8631218"
+National Gallery Singapore,오후 방문,https://www.google.com/maps/place/National+Gallery+Singapore
 ```
 
-`title/name`, `latitude/lat`, `longitude/lon/lng`, `memo/note/comment`, `url` 헤더를 인식합니다. GeoJSON은 Point geometry와 `name` 또는 `Title`을 사용하며, Google Takeout 형태의 `Location.Business Name`도 인식합니다. 좌표가 없는 Takeout CSV의 제목만으로 임의 위치를 저장하지 않습니다. ZIP과 목록 전체 링크는 지원 범위 밖입니다.
+Takeout의 설명문 다음에 나오는 헤더와 `Title`, `Note`, `URL` / `item_content_url` 형식을 인식합니다. 좌표가 별도로 있는 `latitude/lat`, `longitude/lon/lng` CSV도 가능합니다. GeoJSON은 Point geometry와 `name`/`Title`/`Location.Business Name`을 읽습니다. [Google 저장 데이터 스키마](https://developers.google.com/data-portability/schema-reference/save)를 참고했습니다.
 
-샘플은 `samples/places.csv`, `samples/places.geojson`입니다.
+Google 계정 자동 동기화나 목록 공유 링크 전체 가져오기는 지원하지 않습니다. 계정 로그인이나 API 키 없이 파일을 가져오며, 제목만으로 추정한 위치를 자동 저장하지 않습니다. 개별 장소는 Google Maps → 공유 → hop으로도 추가할 수 있습니다.
+
+샘플: `samples/google-saved.csv`, `samples/places.csv`, `samples/places.geojson`.
 
 ## 개발
 
@@ -67,7 +79,7 @@ Singapore Flyer,1.2894095,103.8631218,해 질 무렵
 .\gradlew.bat '-Djava.library.path=C:\Windows\System32' :app:testDebugUnitTest
 ```
 
-핵심 흐름 검수 기록: [docs/verification.md](docs/verification.md). 반복적인 전체 테스트 대신 거리·반경·공유 좌표·호스트 검증 4개와 실제 에뮬레이터의 핵심 흐름을 점검합니다. `scripts/smoke_android.py`는 테스트 전용 `hop_api36` 에뮬레이터의 초기 6개 장소 상태와 개발용 APK를 기준으로 실행하며 테스트 데이터를 추가합니다. 개인 기기를 대상으로 실행하지 마세요.
+핵심 흐름 검수 기록: [docs/verification.md](docs/verification.md). 반복적인 전체 테스트 대신 거리·반경·공유 좌표·호스트 검증 4개, 가져오기 3개와 실제 에뮬레이터의 핵심 흐름을 점검합니다. `scripts/smoke_android.py`는 테스트 전용 `hop_api36` 에뮬레이터의 초기 6개 장소 상태와 개발용 APK를 기준으로 실행하며 테스트 데이터를 추가합니다. 개인 기기를 대상으로 실행하지 마세요.
 
 ## 배포 업데이트
 
@@ -86,7 +98,7 @@ Windows 배포 스크립트는 사용자 프로필의 `.android/hop-singapore-re
 | `Data.kt` | 로컬 저장·ViewModel·온라인 검색·링크 확인 |
 | `MapView.kt` | 지도 렌더링·카메라·제스처·타일 캐시 |
 | `HopApp.kt`, `Theme.kt` | 네이티브 화면·플로팅 메뉴·테마 |
-| `Imports.kt` | CSV/GeoJSON 검토 데이터 생성 |
+| `Imports.kt`, `ImportScreen.kt` | Google Takeout ZIP/CSV/GeoJSON 읽기·검토·위치 보완 |
 | `MainActivity.kt` | Android 공유 수신·위치 요청 |
 
 원본 데이터와 사용 조건은 `THIRD_PARTY_NOTICES.md`를 참고하세요. 실시간 열차·운임·출구별 접근성·여행 순서 최적화·여러 여행·계정 동기화는 후속 범위입니다.

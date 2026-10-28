@@ -37,12 +37,12 @@ shell('am','force-stop','app.hop.singapore')
 shell('am','start','-n','app.hop.singapore/.MainActivity'); time.sleep(.7)
 tap('지도')
 assert find('Raffles Place') and find('430m')
-assert find('이 역에서 도보 확인'), 'Primary action must be reachable on the initial screen'
+assert find('도보 길찾기'), 'Primary action must be reachable on the initial screen'
 screenshot('android-map.png')
 tap('역별'); assert find('한 번 내려서, 3곳.')
 tap('400m'); assert find('한 번 내려서, 2곳.')
 tap('800m'); screenshot('android-stations.png')
-tap('저장한 곳'); assert find('가고 싶은 6곳')
+tap('저장한 곳'); assert find('멀라이언')
 tap('멀라이언 방문 완료')
 assert next(p for p in persisted() if p['id']=='merlion')['visited']
 share(); assert find('장소 추가'); assert find('Singapore Flyer')
@@ -58,9 +58,9 @@ for _ in range(5):
     shell('input','swipe','540','1850','540','650','300'); time.sleep(.2)
 tap('내 장소에 저장'); assert len(persisted())==7, 'Duplicate share saved twice'
 shell('am','force-stop','app.hop.singapore'); shell('am','start','-n','app.hop.singapore/.MainActivity'); time.sleep(.5)
-tap('저장한 곳'); assert find('가고 싶은 7곳')
+tap('저장한 곳'); assert find('멀라이언')
 assert next(p for p in persisted() if p['id']=='merlion')['visited']
 screenshot('android-saved.png')
-result={'device':'Android 16 / API 36 emulator','core_unit_tests':4,'initial_nearest':'Raffles Place 430m','primary_action_visible':True,'radius_800m':3,'radius_400m':2,'share_received_and_saved':True,'duplicate_share_count':7,'places_and_visited_persist_after_restart':True}
+result={'device':'Android 16 / API 36 emulator','core_unit_tests':7,'initial_nearest':'Raffles Place 430m','primary_action_visible':True,'radius_800m':3,'radius_400m':2,'share_received_and_saved':True,'duplicate_share_count':7,'places_and_visited_persist_after_restart':True}
 (OUT/'smoke-results.json').write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
 print(json.dumps(result,ensure_ascii=False,indent=2))

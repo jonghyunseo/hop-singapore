@@ -90,6 +90,11 @@ class HopViewModel(app: Application) : AndroidViewModel(app) {
     var busy by mutableStateOf(false); private set
     var picking by mutableStateOf(false)
     var message by mutableStateOf<String?>(null)
+    var importReview by mutableStateOf<ImportReview?>(null); private set
+    var importLoading by mutableStateOf(false); private set
+    var importSaving by mutableStateOf(false); private set
+    var importEditingId by mutableStateOf<String?>(null); private set
+    var importNotice by mutableStateOf<String?>(null); private set
     private var resolveJob: Job? = null
     val selected: Place? get() = places.find { it.id == selectedId }
     val groupStation: Station? get() = rail?.stations?.find { it.id == stationId } ?: rail?.stations?.firstOrNull { it.name == "Maxwell" }
@@ -118,14 +123,15 @@ class HopViewModel(app: Application) : AndroidViewModel(app) {
     fun delete(place: Place, done: () -> Unit) = mutate({ it.filterNot { p -> p.id == place.id } }) { if(selectedId == place.id) clearSelection(); done() }
     fun restore(place: Place) = mutate({ if(it.any { p -> p.id == place.id }) it else it + place })
     fun beginAdd(shared: String = "", point: GeoPoint? = null) {
+        importEditingId = null
         resolveJob?.cancel(); busy = false; hits = emptyList(); draftError = null; picking = false
         draft = PlaceDraft(link = shared, latitude = point?.lat?.let { "%.6f".format(Locale.US, it) }.orEmpty(), longitude = point?.lon?.let { "%.6f".format(Locale.US, it) }.orEmpty())
         if(shared.isNotBlank()) resolveShared()
     }
     fun edit(place: Place) { draftError = null; hits = emptyList(); draft = PlaceDraft(place.name, place.subtitle, place.point.lat.toString(), place.point.lon.toString(), place.memo, editingId = place.id) }
-    fun closeDraft() { resolveJob?.cancel(); busy = false; draft = null; picking = false; hits = emptyList(); draftError = null }
+    fun closeDraft() { resolveJob?.cancel(); busy = false; draft = null; picking = false; hits = emptyList(); draftError = null; importEditingId = null }
     fun picked(point: GeoPoint) { draft = (draft ?: PlaceDraft()).copy(latitude = "%.6f".format(Locale.US, point.lat), longitude = "%.6f".format(Locale.US, point.lon)); picking = false }
-    fun chooseHit(hit: SearchHit) { draft = (draft ?: PlaceDraft()).copy(name = hit.name, subtitle = hit.address, latitude = hit.point.lat.toString(), longitude = hit.point.lon.toString()); hits = emptyList(); draftError = null }
+    fun chooseHit(hit: SearchHit) { draft = (draft ?: PlaceDraft()).copy(name = if(importEditingId != null) draft?.name.orEmpty().ifBlank { hit.name } else hit.name, subtitle = hit.address, latitude = hit.point.lat.toString(), longitude = hit.point.lon.toString()); hits = emptyList(); draftError = null }
     fun searchName(name: String) {
         if(name.isBlank()) { draftError = "찾을 장소 이름을 입력해 주세요."; return }
         resolveJob?.cancel(); resolveJob = viewModelScope.launch {
@@ -153,11 +159,11 @@ class HopViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 val sharedUrl = SharedLocation.url(text)
                 if(sharedUrl != null && !SharedLocation.allowed(sharedUrl)) { draftError = "Google 지도 링크를 사용해 주세요. 다른 링크는 열지 않았어요."; return@launch }
-                if(text.contains("/maps/placelists") || text.contains("/maps/d/")) { draftError = "목록 전체 링크는 지원하지 않아요. 개별 장소를 공유하거나 좌표가 있는 CSV·GeoJSON 파일을 가져와 주세요."; return@launch }
+                if(text.contains("/maps/placelists") || text.contains("/maps/d/")) { draftError = "목록 전체는 ‘Google 지도 즐겨찾기 가져오기’에서 Takeout ZIP·CSV 파일로 추가해 주세요."; return@launch }
                 var expandedUrl = text
                 if(SharedLocation.point(text) == null && sharedUrl != null) expandedUrl = expandMapsUrl(sharedUrl)
                 val point = SharedLocation.point(expandedUrl)
-                val name = SharedLocation.name(expandedUrl).ifBlank { SharedLocation.name(text) }
+                val name = (if(importEditingId != null) draft?.name.orEmpty() else "").ifBlank { SharedLocation.name(expandedUrl) }.ifBlank { SharedLocation.name(text) }
                 draft = draft?.copy(name = name.ifBlank { draft?.name.orEmpty() })
                 if(point != null) {
                     if(!point.inSingapore) { draftError = "싱가포르 범위 밖의 위치예요."; return@launch }
@@ -194,6 +200,10 @@ class HopViewModel(app: Application) : AndroidViewModel(app) {
         val d = draft ?: return; val p = d.point
         if(d.name.isBlank()) { draftError = "장소 이름을 입력해 주세요."; return }
         if(p == null || !p.inSingapore) { draftError = "싱가포르 안의 위치를 확인해 주세요."; return }
+        importEditingId?.let { id ->
+            importReview = importReview?.let { review -> review.copy(entries = review.entries.map { if(it.id == id) it.copy(name = d.name.trim(), point = p, memo = d.memo, selected = true) else it }) }
+            closeDraft(); return
+        }
         val duplicate = places.find { it.id != d.editingId && distanceMetres(it.point, p) < 15 && it.name.equals(d.name.trim(), true) }
         if(duplicate != null) { closeDraft(); select(duplicate); message = "이미 저장한 장소예요."; return }
         val place = Place(d.editingId ?: UUID.randomUUID().toString(), d.name.trim(), d.subtitle, p, d.memo, places.find { it.id == d.editingId }?.visited ?: false)
@@ -205,5 +215,46 @@ class HopViewModel(app: Application) : AndroidViewModel(app) {
         mutate({ old -> old.toMutableList().also { list -> items.forEach { item ->
             if(list.any { distanceMetres(it.point, item.point) < 15 && it.name.equals(item.name, true) }) duplicates++ else { list += item; added++ }
         } } }) { done(added, duplicates) }
+    }
+    fun loadImport(uri: android.net.Uri) {
+        if(importLoading || importSaving) return
+        viewModelScope.launch {
+            importLoading = true; importNotice = null
+            try {
+                importReview = withContext(Dispatchers.IO) { getApplication<Application>().contentResolver.openInputStream(uri)?.use(::readImport) ?: error("파일을 열지 못했어요.") }
+            } catch(e: CancellationException) { throw e }
+            catch(e: Exception) { message = e.message ?: "파일 형식을 확인해 주세요." }
+            finally { importLoading = false }
+        }
+    }
+    fun toggleImport(id: String) { importReview = importReview?.let { r -> r.copy(entries = r.entries.map { if(it.id == id && it.ready) it.copy(selected = !it.selected) else it }) } }
+    fun closeImport() { if(!importSaving) importReview = null }
+    fun editImport(entry: ImportEntry) {
+        closeDraft(); importEditingId = entry.id
+        draft = PlaceDraft(name = entry.name, subtitle = entry.collection, latitude = entry.point?.lat?.toString().orEmpty(), longitude = entry.point?.lon?.toString().orEmpty(), memo = entry.memo, link = entry.url)
+        if(!entry.ready) {
+            if(entry.url.isNotBlank() && SharedLocation.allowed(entry.url)) resolveShared()
+            else if(entry.name.isNotBlank()) searchName(entry.name)
+        }
+    }
+    fun commitImport() {
+        val selected = importReview?.selected.orEmpty(); if(selected.isEmpty() || importSaving) return
+        importSaving = true
+        viewModelScope.launch { writeLock.withLock {
+            val next = places.toMutableList(); var added = 0
+            selected.forEach { entry -> val item = entry.place()
+                if(next.none { distanceMetres(it.point, item.point) < 15 && it.name.equals(item.name, true) }) { next += item; added++ }
+            }
+            try {
+                withContext(Dispatchers.IO) { store.write(next) }; places = next
+                // Unresolved and deselected entries remain available for correction.
+                val remaining = importReview?.entries.orEmpty().filterNot { entry -> selected.any { it.id == entry.id } }
+                importReview = if(remaining.isEmpty()) null else importReview?.copy(entries = remaining)
+                changeTab(1); importNotice = "${added}곳 저장 · 중복 ${selected.size - added}곳 제외"
+                if(importReview == null) message = importNotice
+            } catch(e: CancellationException) { throw e }
+            catch(_: Exception) { importNotice = "저장하지 못했어요. 다시 시도해 주세요." }
+            finally { importSaving = false }
+        } }
     }
 }
