@@ -36,9 +36,10 @@ class MainActivity : ComponentActivity() {
 suspend fun currentLocation(context: android.content.Context): GeoPoint? {
     if(context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED && context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return null
     val manager = context.getSystemService(LocationManager::class.java)
-    val provider = listOf(LocationManager.NETWORK_PROVIDER,LocationManager.GPS_PROVIDER).firstOrNull { manager.isProviderEnabled(it) } ?: return null
-    return withTimeoutOrNull(12000) {
-        suspendCancellableCoroutine { cont ->
+    val providers = buildList { if(context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED) add(LocationManager.GPS_PROVIDER); add(LocationManager.NETWORK_PROVIDER) }.filter { manager.isProviderEnabled(it) }
+    for(provider in providers) {
+        val point = withTimeoutOrNull(if(provider==LocationManager.GPS_PROVIDER) 8000L else 4000L) {
+        suspendCancellableCoroutine<GeoPoint?> { cont ->
             if(android.os.Build.VERSION.SDK_INT >= 30) {
                 val signal=CancellationSignal(); cont.invokeOnCancellation { signal.cancel() }
                 manager.getCurrentLocation(provider,signal,context.mainExecutor) { location -> if(cont.isActive) cont.resume(location?.let { GeoPoint(it.latitude,it.longitude) }) }
@@ -50,5 +51,8 @@ suspend fun currentLocation(context: android.content.Context): GeoPoint? {
                 cont.invokeOnCancellation { manager.removeUpdates(listener) }; manager.requestSingleUpdate(provider,listener,Looper.getMainLooper())
             }
         }
+        }
+        if(point!=null) return point
     }
+    return null
 }

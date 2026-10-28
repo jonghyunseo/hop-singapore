@@ -1,5 +1,25 @@
 ﻿# Android 검증 기록
 
+## 0.3.0 — 2026-10-28
+
+기본 지도를 MapLibre Native + OpenStreetMap 상세 지도로 교체하고, 변경한 지도·탐색 흐름을 중심으로 점검했다. 0.2.0의 파일 가져오기 전체 UI 검사는 반복하지 않았다.
+
+- 단위 테스트 9개, 실패 0: 기존 Core 4개 + Import 3개 + 길찾기 URL의 현재 위치/역 출발 구분·허용하지 않는 모드 제외 2개.
+- `:app:assembleRelease`, 필수 `lintVitalRelease`, `apksigner verify` 성공. `versionName=0.3.0`, `versionCode=4`.
+- 전용 `hop_api36` Android 16/API 36 에뮬레이터에서 0.2.0 위에 `adb install -r` 성공. 기존 저장 장소 유지.
+- 실제 OSM 도로·건물·상점명 타일과 MRT·저장 장소 라벨이 함께 보이는 것을 캡처로 확인. 별도 API 키 없이 실행.
+- 오프라인 MRT 검색 Maxwell → TE18 역 카드. 온라인 National Gallery 검색 → 이름/주소가 있는 결과 확인.
+- 지도 중심 주변 카페 결과 20곳, 지도 핀과 거리순 목록 확인. Privé Cafe 저장 → 강제 종료·재실행 후 유지 확인.
+- 도보·대중교통·자동차와 공유 액션 시트 확인. 경로 URL은 단위 테스트로 검증했으며 Google 지도 앱 안의 실제 안내를 실행한 것은 아님.
+- 에뮬레이터에 싱가포르 GPS 좌표를 주입해 내 위치 표시 및 ‘내 위치 추적 끄기’ 상태 확인. 지도 드래그로 추적 종료 확인. 물리 기기 GPS 정확도 검증은 아님.
+- Wi-Fi/모바일 데이터 중지 후 오프라인 상태 표시, Changi Airport 로컬 검색과 CG2 역 카드 확인. 검증 후 연결 복원. 캐시하지 않은 공항의 상세 타일이 오프라인에서 없는 것도 확인.
+- 세로/가로 실제 화면 확인. 안내 문구와 출처 겹침 제거, 가로에서 위치/레이어/전체 보기 버튼을 가로로 배치해 확대·축소 버튼과 분리.
+- AndroidRuntime 오류 로그에서 크래시 없음.
+
+증거: 로컬 `app/build/test-results/testDebugUnitTest/TEST-app.hop.singapore.*Test.xml`, `docs/images/android-map-v030.png`, `android-search-v030.png`, `android-nearby-v030.png`, `android-landscape-v030.png`. GitHub Release의 APK와 SHA-256 파일. 기존 배포판과 같은 서명 인증서를 사용한다.
+
+상세 지도·검색 서버의 가용성, 모든 상점의 등록 여부, 전체 기기/대형 화면/TalkBack 동작을 포괄 보장하지 않는다. 앱 내 이동 경로 계산·내비게이션은 구현하지 않았으며 외부 Google 지도를 연다.
+
 ## 0.2.0 — 2026-10-28
 
 실제 Kotlin/Compose 네이티브 APK를 대상으로 핵심 계산, 변경된 화면, 파일 가져오기만 점검했다. 테스트용으로 만든 Google 저장 목록 형식의 파일을 사용했으며 개인 Google 계정 전체 내보내기를 검증한 것은 아니다.

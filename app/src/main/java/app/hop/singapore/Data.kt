@@ -70,6 +70,7 @@ class HopViewModel(app: Application) : AndroidViewModel(app) {
     private val store = PlaceStore(app)
     private val prefs = app.getSharedPreferences("preferences", Context.MODE_PRIVATE)
     private val writeLock = Mutex()
+    private val searchService = PlaceSearch(app)
     var rail by mutableStateOf<RailData?>(null); private set
     var places by mutableStateOf<List<Place>>(emptyList()); private set
     var loading by mutableStateOf(true); private set
@@ -80,7 +81,20 @@ class HopViewModel(app: Application) : AndroidViewModel(app) {
     var stationId by mutableStateOf(prefs.getString("station", "TE18").orEmpty()); private set
     var radius by mutableIntStateOf(prefs.getInt("radius", 800)); private set
     var theme by mutableStateOf(prefs.getString("theme", "system").orEmpty()); private set
-    var detailedMap by mutableStateOf(prefs.getBoolean("detailed", false)); private set
+    var detailedMap by mutableStateOf(prefs.getBoolean("streetMapV3", true)); private set
+    var showRail by mutableStateOf(prefs.getBoolean("showRail", true)); private set
+    var showSaved by mutableStateOf(prefs.getBoolean("showSaved", true)); private set
+    var preview by mutableStateOf<Place?>(null); private set
+    var stationPreview by mutableStateOf<Station?>(null); private set
+    var mapQuery by mutableStateOf("")
+    var mapResults by mutableStateOf<List<Place>>(emptyList()); private set
+    var mapSearching by mutableStateOf(false); private set
+    var mapSearchError by mutableStateOf<String?>(null); private set
+    var mapCategory by mutableStateOf<PlaceCategory?>(null); private set
+    var mapResultsVersion by mutableIntStateOf(0); private set
+    var searchHistory by mutableStateOf(prefs.getString("mapSearchHistory", "").orEmpty().split('\n').filter { it.isNotBlank() }); private set
+    private var mapSearchJob: Job? = null
+    private var reverseJob: Job? = null
     var expanded by mutableStateOf(false)
     var query by mutableStateOf("")
     var visitFilter by mutableIntStateOf(0)
@@ -96,7 +110,7 @@ class HopViewModel(app: Application) : AndroidViewModel(app) {
     var importEditingId by mutableStateOf<String?>(null); private set
     var importNotice by mutableStateOf<String?>(null); private set
     private var resolveJob: Job? = null
-    val selected: Place? get() = places.find { it.id == selectedId }
+    val selected: Place? get() = preview ?: places.find { it.id == selectedId }
     val groupStation: Station? get() = rail?.stations?.find { it.id == stationId } ?: rail?.stations?.firstOrNull { it.name == "Maxwell" }
     init { reload() }
     fun reload() { viewModelScope.launch {
@@ -107,12 +121,15 @@ class HopViewModel(app: Application) : AndroidViewModel(app) {
         loading = false
     }}
     fun changeTab(value: Int) { tab = value; prefs.edit().putInt("tab", value).apply() }
-    fun select(place: Place) { selectedId = place.id; candidateId = null; expanded = false; changeTab(0); prefs.edit().putString("selected", place.id).apply() }
-    fun clearSelection() { selectedId = null; candidateId = null; expanded = false; prefs.edit().putString("selected", "").apply() }
+    fun select(place: Place) { reverseJob?.cancel(); stationPreview=null; preview=place.takeUnless { p -> places.any { it.id==p.id } }; selectedId = place.id; candidateId = null; expanded = false; changeTab(0); prefs.edit().putString("selected", if(preview==null) place.id else "").apply() }
+    fun clearSelection() { reverseJob?.cancel(); preview=null; stationPreview=null; selectedId = null; candidateId = null; expanded = false; prefs.edit().putString("selected", "").apply() }
+    fun inspectStation(station:Station) { clearSelection(); stationPreview=station }
     fun chooseStation(station: Station) { stationId = station.id; prefs.edit().putString("station", station.id).apply(); changeTab(2) }
     fun changeRadius(value: Int) { radius = value; prefs.edit().putInt("radius", value).apply() }
     fun changeTheme(value: String) { theme = value; prefs.edit().putString("theme", value).apply() }
-    fun changeMap() { detailedMap = !detailedMap; prefs.edit().putBoolean("detailed", detailedMap).apply() }
+    fun changeMap() { detailedMap = !detailedMap; prefs.edit().putBoolean("streetMapV3", detailedMap).apply() }
+    fun toggleRail() { showRail=!showRail; prefs.edit().putBoolean("showRail",showRail).apply() }
+    fun toggleSaved() { showSaved=!showSaved; prefs.edit().putBoolean("showSaved",showSaved).apply() }
     private fun mutate(action: (List<Place>) -> List<Place>, done: () -> Unit = {}) { viewModelScope.launch { writeLock.withLock {
         val next = action(places)
         runCatching { withContext(Dispatchers.IO) { store.write(next) } }
@@ -128,7 +145,7 @@ class HopViewModel(app: Application) : AndroidViewModel(app) {
         draft = PlaceDraft(link = shared, latitude = point?.lat?.let { "%.6f".format(Locale.US, it) }.orEmpty(), longitude = point?.lon?.let { "%.6f".format(Locale.US, it) }.orEmpty())
         if(shared.isNotBlank()) resolveShared()
     }
-    fun edit(place: Place) { draftError = null; hits = emptyList(); draft = PlaceDraft(place.name, place.subtitle, place.point.lat.toString(), place.point.lon.toString(), place.memo, editingId = place.id) }
+    fun edit(place: Place) { closeDraft(); draft = PlaceDraft(place.name, place.subtitle, place.point.lat.toString(), place.point.lon.toString(), place.memo, editingId = place.id.takeIf { id -> places.any { it.id==id } }) }
     fun closeDraft() { resolveJob?.cancel(); busy = false; draft = null; picking = false; hits = emptyList(); draftError = null; importEditingId = null }
     fun picked(point: GeoPoint) { draft = (draft ?: PlaceDraft()).copy(latitude = "%.6f".format(Locale.US, point.lat), longitude = "%.6f".format(Locale.US, point.lon)); picking = false }
     fun chooseHit(hit: SearchHit) { draft = (draft ?: PlaceDraft()).copy(name = if(importEditingId != null) draft?.name.orEmpty().ifBlank { hit.name } else hit.name, subtitle = hit.address, latitude = hit.point.lat.toString(), longitude = hit.point.lon.toString()); hits = emptyList(); draftError = null }
@@ -215,6 +232,46 @@ class HopViewModel(app: Application) : AndroidViewModel(app) {
         mutate({ old -> old.toMutableList().also { list -> items.forEach { item ->
             if(list.any { distanceMetres(it.point, item.point) < 15 && it.name.equals(item.name, true) }) duplicates++ else { list += item; added++ }
         } } }) { done(added, duplicates) }
+    }
+    fun searchMap(center:GeoPoint) {
+        val query=mapQuery.trim(); if(query.isBlank()) return
+        mapSearchJob?.cancel(); clearSelection(); mapCategory=null; mapResults=emptyList()
+        searchHistory=(listOf(query)+searchHistory).distinct().take(8); prefs.edit().putString("mapSearchHistory",searchHistory.joinToString("\n")).apply()
+        mapSearchJob=viewModelScope.launch {
+            mapSearching=true; mapSearchError=null
+            try {
+                mapResults=try { searchService.search(query,center) } catch(e:CancellationException) { throw e } catch(_:Exception) { geocode(query).mapIndexed { i,h -> Place("geocoder-$i",h.name,h.address,h.point) } }
+                if(mapResults.isEmpty()) mapSearchError="온라인 결과가 없어요. 영문 이름·주소로 검색하거나 지도를 길게 눌러 위치를 선택해 주세요."
+                else mapResultsVersion++
+            } catch(e:CancellationException) { throw e }
+            catch(_:Exception) { mapSearchError="온라인 검색에 연결하지 못했어요. 저장한 장소와 MRT 역 검색은 계속 사용할 수 있어요." }
+            finally { if(currentCoroutineContext().isActive) mapSearching=false }
+        }
+    }
+    fun searchNearby(category:PlaceCategory,center:GeoPoint) {
+        mapSearchJob?.cancel(); clearSelection(); mapCategory=category; mapResults=emptyList()
+        mapSearchJob=viewModelScope.launch {
+            mapSearching=true; mapSearchError=null
+            try {
+                mapResults=searchService.nearby(category,center)
+                if(mapResults.isEmpty()) mapSearchError="이 지역 2.5km 안에 표시할 ${category.title} 결과가 없어요. 지도를 옮겨 다시 찾아보세요."
+                else mapResultsVersion++
+            } catch(e:CancellationException) { throw e }
+            catch(_:Exception) { mapSearchError="주변 장소를 불러오지 못했어요. 인터넷 연결을 확인하고 다시 찾아보세요." }
+            finally { if(currentCoroutineContext().isActive) mapSearching=false }
+        }
+    }
+    fun clearMapResults() { mapSearchJob?.cancel(); mapSearching=false; mapResults=emptyList(); mapCategory=null; mapSearchError=null }
+    fun clearSearchHistory() { searchHistory=emptyList(); prefs.edit().remove("mapSearchHistory").apply() }
+    fun previewPoint(point:GeoPoint) {
+        val p=Place("pin-${point.lat}-${point.lon}","지도에서 선택한 위치","%.5f, %.5f".format(Locale.US,point.lat,point.lon),point)
+        select(p)
+        reverseJob=viewModelScope.launch {
+            try {
+                val hit=searchService.reverse(point).firstOrNull()
+                if(preview?.id==p.id && hit!=null) preview=p.copy(name=if(distanceMetres(hit.point,point)<30) hit.name else p.name,subtitle=hit.subtitle.ifBlank { p.subtitle })
+            } catch(e:CancellationException) { throw e } catch(_:Exception) { /* Pin coordinates remain usable offline. */ }
+        }
     }
     fun loadImport(uri: android.net.Uri) {
         if(importLoading || importSaving) return

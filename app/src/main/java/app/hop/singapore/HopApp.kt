@@ -9,6 +9,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -49,35 +50,43 @@ import kotlinx.coroutines.*
     val snackbar=remember { SnackbarHostState() }; val camera=rememberMapCamera()
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var showStationPicker by rememberSaveable { mutableStateOf(false) }
+    var showMapSearch by rememberSaveable { mutableStateOf(false) }
+    var showLayers by rememberSaveable { mutableStateOf(false) }
+    var showResults by rememberSaveable { mutableStateOf(false) }
+    var actionPlace by remember { mutableStateOf<Place?>(null) }
     var location by remember { mutableStateOf<GeoPoint?>(null) }; var locating by remember { mutableStateOf(false) }
+    var following by remember { mutableStateOf(false) }
     var showImportHelp by rememberSaveable { mutableStateOf(false) }
     var previousTab by rememberSaveable { mutableIntStateOf(0) }
     var discard by remember { mutableStateOf(false) }
-    val selected=vm.selected; val rail=vm.rail
+    val selected=vm.selected; val rail=vm.rail; val stationPreview=vm.stationPreview
     val candidates=remember(selected,rail) { selected?.let { p -> rail?.let { nearest(p.point,it.stations) } }.orEmpty() }
     val candidate=candidates.find { it.station.id==vm.candidateId } ?: candidates.firstOrNull()
-    fun selectPlace(p: Place) { previousTab=vm.tab; vm.select(p) }
+    fun selectPlace(p: Place) { following=false; previousTab=vm.tab; vm.select(p) }
+    fun inspectStation(station:Station) { following=false; vm.inspectStation(station); camera.focus(station.point,15.3) }
     fun locate() { scope.launch {
         locating=true
         val p=runCatching { currentLocation(context) }.getOrNull()
         if(p==null) snackbar.showSnackbar("현재 위치를 확인할 수 없어요. 지도는 계속 사용할 수 있어요.")
         else if(!p.inSingapore) snackbar.showSnackbar("현재 위치가 싱가포르 밖이에요. 여행 지도는 그대로 유지합니다.")
-        else { location=p; camera.focus(p); vm.clearSelection() }
+        else { location=p; camera.focus(p); vm.clearSelection(); following=true }
         locating=false
     }}
     val permissions=rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
         if(result.values.any { it }) locate() else scope.launch { snackbar.showSnackbar("위치 권한 없이도 장소와 역을 비교할 수 있어요.") }
     }
     val filePicker=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if(uri!=null) vm.loadImport(uri) }
+    FollowLocation(following && vm.tab==0 && vm.draft==null && !showMapSearch) { point -> location=point; camera.focus(point,camera.zoom.coerceIn(14.0,18.0)) }
     LaunchedEffect(vm.message) { vm.message?.let { message -> vm.message=null; snackbar.showSnackbar(message) } }
     LaunchedEffect(selected?.id,candidate?.station?.id) {
         if(selected!=null) {
             val p=candidate?.station?.point ?: selected.point
-            camera.focus(GeoPoint((selected.point.lat+p.lat)/2,(selected.point.lon+p.lon)/2), if((candidate?.metres ?: 0.0)>1600) 13.8 else 15.6)
+            camera.fit(listOf(selected.point,p))
         }
     }
-    BackHandler(enabled=vm.draft==null && (vm.expanded || selected!=null || vm.tab!=0)) {
-        when { vm.expanded -> vm.expanded=false; vm.tab==0 && previousTab!=0 -> { vm.changeTab(previousTab); previousTab=0 }; vm.tab==0 && selected!=null -> vm.clearSelection(); else -> vm.changeTab(0) }
+    LaunchedEffect(vm.mapResultsVersion) { if(vm.mapResultsVersion>0 && vm.mapResults.isNotEmpty()) camera.fit(vm.mapResults.map { it.point }) }
+    BackHandler(enabled=vm.draft==null && (vm.expanded || selected!=null || stationPreview!=null || vm.mapResults.isNotEmpty() || vm.tab!=0)) {
+        when { vm.expanded -> vm.expanded=false; vm.tab==0 && previousTab!=0 -> { vm.changeTab(previousTab); previousTab=0 }; vm.tab==0 && (selected!=null || stationPreview!=null) -> vm.clearSelection(); vm.tab==0 && vm.mapResults.isNotEmpty() -> vm.clearMapResults(); else -> vm.changeTab(0) }
     }
     Surface(Modifier.fillMaxSize(),color=colors.background) {
         if(vm.loading) Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center) { CircularProgressIndicator() }
@@ -90,35 +99,45 @@ import kotlinx.coroutines.*
             var dockHeight by remember { mutableStateOf(60.dp) }
             var cardHeight by remember { mutableStateOf(156.dp) }
             val dockReserve=dockHeight+bottom+20.dp
-            val mapBottom=if(selected!=null && candidate!=null && !wide) dockReserve+cardHeight+8.dp else dockReserve
+            val hasPanel=selected!=null || stationPreview!=null || vm.mapResults.isNotEmpty() || vm.mapSearching || vm.mapSearchError!=null
+            val mapBottom=if(hasPanel && !wide) dockReserve+cardHeight+8.dp else dockReserve
             if(vm.tab==0) {
-                SingaporeMap(rail,vm.places,camera,Modifier.fillMaxSize(),selected,candidate?.station,
+                SingaporeMap(rail,vm.places,camera,Modifier.fillMaxSize(),selected,stationPreview ?: candidate?.station,
                     detailed=vm.detailedMap,currentLocation=location,controlsBottom=mapBottom,
-                    viewportTop=top+72.dp,viewportBottom=mapBottom,viewportLeft=if(wide && selected!=null) 340.dp else 0.dp,
-                    onPlace=::selectPlace,onStation=vm::chooseStation,onLongPress={vm.beginAdd(point=it)})
+                    viewportTop=top+124.dp,viewportBottom=mapBottom,viewportLeft=if(wide && hasPanel) 340.dp else 0.dp,viewportRight=72.dp,
+                    onPlace=::selectPlace,onStation=::inspectStation,onLongPress={following=false;vm.previewPoint(it)},onMapTap={following=false;vm.previewPoint(it)},showRail=vm.showRail,showSaved=vm.showSaved,browsePlaces=vm.mapResults,onGesture={following=false})
                 Row(Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(horizontal=16.dp,vertical=8.dp).widthIn(max=600.dp).fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                     Surface(Modifier.weight(1f),shape=CircleShape,shadowElevation=3.dp,color=colors.surface) {
                         Row(verticalAlignment=Alignment.CenterVertically) {
                             IconButton(onClick={showSettings=true}) { Icon(Icons.Rounded.Menu,"메뉴") }
-                            Row(Modifier.weight(1f).heightIn(min=52.dp).clickable { vm.changeTab(1) },verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                            Row(Modifier.weight(1f).heightIn(min=52.dp).clickable { following=false; showMapSearch=true },verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                                 Icon(Icons.Rounded.Search,null,Modifier.size(20.dp),tint=colors.onSurfaceVariant)
-                                Text("저장한 곳 찾기",fontSize=14.sp,color=colors.onSurfaceVariant,maxLines=1)
+                                Text("장소·주소·MRT 검색",fontSize=14.sp,color=colors.onSurfaceVariant,maxLines=1)
                             }
                             Text("hop",Modifier.padding(end=16.dp),fontSize=22.sp,fontWeight=FontWeight.Bold,color=colors.primary,letterSpacing=(-1).sp)
                         }
                     }
                     FilledIconButton(onClick={vm.beginAdd()},modifier=Modifier.size(52.dp),colors=IconButtonDefaults.filledIconButtonColors(containerColor=colors.tertiaryContainer,contentColor=colors.onTertiaryContainer)) { Icon(Icons.Rounded.Add,"장소 추가") }
                 }
-                Column(Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top=76.dp,end=16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                    FilledTonalIconButton(onClick={permissions.launch(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION,Manifest.permission.ACCESS_FINE_LOCATION))},modifier=Modifier.size(48.dp)) { if(locating) CircularProgressIndicator(Modifier.size(20.dp),strokeWidth=2.dp) else Icon(Icons.Rounded.MyLocation,"내 위치") }
-                    FilledTonalIconButton(onClick=vm::changeMap,modifier=Modifier.size(48.dp)) { Icon(Icons.Rounded.Layers,if(vm.detailedMap) "간략 지도로 전환" else "상세 지도로 전환") }
+                Row(Modifier.align(Alignment.TopStart).statusBarsPadding().padding(top=70.dp,start=16.dp,end=16.dp).horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                    PlaceCategory.entries.forEach { category -> FilterChip(selected=vm.mapCategory==category,onClick={following=false;vm.searchNearby(category,camera.point)},label={Text(category.title)},shape=CircleShape,colors=FilterChipDefaults.filterChipColors(containerColor=colors.surface)) }
                 }
-                if(selected!=null && candidate!=null) CompactPlaceCard(vm,selected,candidate,
+                FlowRow(Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top=if(wide) 110.dp else 128.dp,end=16.dp).width(if(wide) 160.dp else 48.dp),maxItemsInEachRow=if(wide) 3 else 1,horizontalArrangement=Arrangement.spacedBy(8.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                    FilledTonalIconButton(onClick={if(following) following=false else permissions.launch(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION,Manifest.permission.ACCESS_FINE_LOCATION))},modifier=Modifier.size(48.dp)) { if(locating) CircularProgressIndicator(Modifier.size(20.dp),strokeWidth=2.dp) else Icon(Icons.Rounded.MyLocation,if(following) "내 위치 추적 끄기" else "내 위치",tint=if(following) colors.primary else colors.onSurface) }
+                    FilledTonalIconButton(onClick={showLayers=true},modifier=Modifier.size(48.dp)) { Icon(Icons.Rounded.Layers,"지도 표시 설정") }
+                    FilledTonalIconButton(onClick={following=false;camera.fit(vm.places.map { it.point })},modifier=Modifier.size(48.dp)) { Icon(Icons.Rounded.ZoomOutMap,"저장한 장소 모두 보기") }
+                }
+                if(selected!=null && candidate!=null) CompactPlaceCard(vm,selected,candidate,onActions={actionPlace=selected},modifier=
                     Modifier.align(if(wide) Alignment.BottomStart else Alignment.BottomCenter)
                         .padding(start=16.dp,end=16.dp,bottom=dockReserve).widthIn(max=if(wide) 340.dp else 520.dp).fillMaxWidth()
                         .onSizeChanged { cardHeight=with(density){it.height.toDp()} })
-                else Surface(Modifier.align(Alignment.BottomCenter).padding(bottom=dockReserve+8.dp).padding(horizontal=24.dp),shape=CircleShape,color=colors.surface.copy(alpha=.96f)) {
-                    Text("핀을 눌러 가까운 역 확인 · 길게 눌러 장소 추가",Modifier.padding(horizontal=16.dp,vertical=10.dp),fontSize=12.sp,color=colors.onSurfaceVariant)
+                else if(stationPreview!=null) StationMapCard(stationPreview,vm,Modifier.align(if(wide) Alignment.BottomStart else Alignment.BottomCenter).padding(start=16.dp,end=16.dp,bottom=dockReserve).widthIn(max=if(wide) 340.dp else 520.dp).fillMaxWidth().onSizeChanged { cardHeight=with(density){it.height.toDp()} },vm::clearSelection)
+                else if(vm.mapResults.isNotEmpty() || vm.mapSearching || vm.mapSearchError!=null) Surface(Modifier.align(if(wide) Alignment.BottomStart else Alignment.BottomCenter).padding(start=16.dp,end=16.dp,bottom=dockReserve).widthIn(max=if(wide) 340.dp else 520.dp).fillMaxWidth().onSizeChanged { cardHeight=with(density){it.height.toDp()} },shape=RoundedCornerShape(24.dp),shadowElevation=4.dp) {
+                    Column(Modifier.padding(horizontal=16.dp,vertical=8.dp)) {
+                        Row(verticalAlignment=Alignment.CenterVertically) { Text(vm.mapSearchError ?: if(vm.mapSearching) "주변 장소를 찾는 중…" else "${vm.mapCategory?.title ?: "검색 결과"} · ${vm.mapResults.size}곳",Modifier.weight(1f),fontSize=14.sp); IconButton(onClick=vm::clearMapResults) { Icon(Icons.Rounded.Close,"검색 결과 닫기") } }
+                        if(vm.mapSearching) LinearProgressIndicator(Modifier.fillMaxWidth())
+                        Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) { if(vm.mapCategory!=null) TextButton(onClick={vm.searchNearby(vm.mapCategory!!,camera.point)},enabled=!vm.mapSearching) { Text("이 지역 다시 찾기") }; if(vm.mapResults.isNotEmpty()) FilledTonalButton(onClick={showResults=true}) { Icon(Icons.Rounded.List,null); Text("목록 보기") } }
+                    }
                 }
             } else Column(Modifier.fillMaxSize().statusBarsPadding()) {
                 Row(Modifier.fillMaxWidth().padding(horizontal=8.dp),verticalAlignment=Alignment.CenterVertically) {
@@ -140,6 +159,10 @@ import kotlinx.coroutines.*
     if(vm.expanded && selected!=null && candidate!=null) ModalBottomSheet(onDismissRequest={vm.expanded=false},sheetState=rememberModalBottomSheetState(skipPartiallyExpanded=true),containerColor=colors.surface) {
         PlaceDetail(vm,selected,candidate,candidates,Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).navigationBarsPadding(),onEdit={vm.expanded=false;vm.edit(selected)})
     }
+    if(showMapSearch) MapSearchScreen(vm,camera.point,{showMapSearch=false},::selectPlace,::inspectStation)
+    if(showLayers) MapLayersSheet(vm,{showLayers=false}) { vm.clearSelection(); camera.fit(listOf(GeoPoint(1.22,103.64),GeoPoint(1.45,104.02))) }
+    if(showResults) NearbyResultsSheet(vm,camera.point,{showResults=false},::selectPlace)
+    actionPlace?.let { p -> PlaceActionsSheet(p,rail?.let { nearest(p.point,it.stations).firstOrNull()?.station },{actionPlace=null}) }
     if(showStationPicker && rail!=null) StationPicker(rail.stations,{showStationPicker=false}) { vm.chooseStation(it); showStationPicker=false }
     if(showSettings) Settings(vm,onDismiss={showSettings=false},onImport={showSettings=false;showImportHelp=true})
     if(showImportHelp) GoogleImportHelp(onDismiss={showImportHelp=false},onChooseFile={showImportHelp=false;filePicker.launch(arrayOf("text/*","application/json","application/geo+json","application/zip","application/x-zip-compressed","application/octet-stream"))},onShare={showImportHelp=false;vm.beginAdd()})
@@ -168,13 +191,14 @@ import kotlinx.coroutines.*
     val codeColors=mapOf("NS" to 0xFFB12C37,"EW" to 0xFF126D43,"NE" to 0xFF773582,"CC" to 0xFF8A5804,"DT" to 0xFF205F9B,"TE" to 0xFF785336,"CG" to 0xFF126D43,"CE" to 0xFF8A5804)
     FlowRow(horizontalArrangement=Arrangement.spacedBy(4.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) { station.codes.forEach { code -> Text(code,Modifier.background(Color(codeColors[code.take(2)] ?: 0xFF526078),RoundedCornerShape(7.dp)).padding(horizontal=7.dp,vertical=2.dp),color=Color.White,fontSize=12.sp,lineHeight=16.sp,fontWeight=FontWeight.Bold) } }
 }
-@Composable private fun CompactPlaceCard(vm:HopViewModel,place:Place,candidate:Candidate,modifier:Modifier) {
+@Composable private fun CompactPlaceCard(vm:HopViewModel,place:Place,candidate:Candidate,onActions:()->Unit,modifier:Modifier) {
     val colors=MaterialTheme.colorScheme; val context=LocalContext.current
     Surface(modifier,shape=RoundedCornerShape(28.dp),color=colors.surface,shadowElevation=6.dp) {
         Column(Modifier.padding(start=16.dp,end=12.dp,top=4.dp,bottom=12.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment=Alignment.CenterVertically) {
                 Text(place.name,Modifier.weight(1f),fontSize=17.sp,fontWeight=FontWeight.SemiBold,maxLines=1,overflow=TextOverflow.Ellipsis)
-                IconButton(onClick={vm.expanded=true}) { Icon(Icons.Rounded.ExpandLess,"장소 상세와 다른 역 비교") }
+                if(vm.places.none { it.id==place.id }) IconButton(onClick={vm.edit(place)}) { Icon(Icons.Rounded.BookmarkAdd,"이 장소 저장") }
+                IconButton(onClick=onActions) { Icon(Icons.Rounded.MoreHoriz,"길찾기·정보·공유") }
                 IconButton(onClick=vm::clearSelection) { Icon(Icons.Rounded.Close,"장소 선택 닫기",Modifier.size(20.dp)) }
             }
             Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)) {
@@ -186,7 +210,7 @@ import kotlinx.coroutines.*
                 Column(horizontalAlignment=Alignment.End) { Text(formatDistance(candidate.metres),fontSize=22.sp,fontWeight=FontWeight.Bold,color=colors.primary); Text("직선거리",fontSize=11.sp,color=colors.onSurfaceVariant) }
             }
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
-                TextButton(onClick={vm.expanded=true},modifier=Modifier.weight(1f),contentPadding=PaddingValues(horizontal=4.dp)) { Text("가까운 역 3곳 비교",fontSize=12.sp); Icon(Icons.Rounded.ChevronRight,null,Modifier.size(16.dp)) }
+                TextButton(onClick={vm.expanded=true},modifier=Modifier.weight(1f),contentPadding=PaddingValues(horizontal=4.dp)) { Text("하차역 3곳 비교",fontSize=12.sp); Icon(Icons.Rounded.ChevronRight,null,Modifier.size(16.dp)) }
                 FilledTonalButton(onClick={runCatching { context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(walkingUrl(candidate.station,place)))) }.onFailure { vm.message="지도를 열 수 있는 앱이 없어요." }},contentPadding=PaddingValues(horizontal=16.dp),modifier=Modifier.heightIn(min=48.dp)) { Icon(Icons.Rounded.DirectionsWalk,null,Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("도보 길찾기",fontSize=12.sp) }
             }
         }
@@ -253,7 +277,7 @@ import kotlinx.coroutines.*
 
 @Composable private fun GroupsScreen(vm: HopViewModel,rail:RailData,modifier:Modifier,bottom:Dp,onStationPicker:()->Unit,onPlace:(Place)->Unit) {
     val station=vm.groupStation ?: return; val colors=MaterialTheme.colorScheme; val rows=within(station,vm.places,vm.radius)
-    val camera=rememberMapCamera(); LaunchedEffect(station.id,vm.radius) { camera.focus(station.point,if(vm.radius==1200) 14.2 else if(vm.radius==800) 14.8 else 15.4) }
+    val camera=rememberMapCamera(); LaunchedEffect(station.id,vm.radius) { val delta=vm.radius/111320.0; camera.fit(listOf(GeoPoint(station.point.lat-delta,station.point.lon-delta),GeoPoint(station.point.lat+delta,station.point.lon+delta))) }
     LazyColumn(modifier,contentPadding=PaddingValues(start=16.dp,end=16.dp,top=4.dp,bottom=bottom),verticalArrangement=Arrangement.spacedBy(8.dp)) {
         item { Surface(onClick=onStationPicker,shape=CircleShape,color=colors.surfaceVariant) { Row(Modifier.fillMaxWidth().padding(16.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) { Text(station.name,Modifier.weight(1f),fontSize=20.sp,fontWeight=FontWeight.SemiBold); CodeBadges(station); Icon(Icons.Rounded.ExpandMore,null) } } }
         item { Text("한 번 내려서, ${rows.size}곳.",fontSize=21.sp,fontWeight=FontWeight.SemiBold) }
@@ -290,7 +314,7 @@ import kotlinx.coroutines.*
         Text("Google Takeout의 저장 목록과 메모를 가져와요. 위치가 없는 장소도 검색·핀으로 확인할 수 있어요.",fontSize=13.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
         HorizontalDivider()
         Text("MRT ${vm.rail?.stations?.size ?: 0}개 역 · 데이터 기준 2026.10.28",fontSize=13.sp)
-        Text("도심 간략 지도는 오프라인으로 제공됩니다. 상세 지도는 인터넷이 필요합니다. 거리 계산은 역 대표점 기준이며 실제 도보거리와 다릅니다.",fontSize=13.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("상세 도로 지도를 기본으로 사용합니다. 지도 표시 설정에서 노선·저장 장소를 켜고 끌 수 있어요. 상세 지도와 주변 검색은 인터넷이 필요합니다. 거리 계산은 역 대표점 기준이며 실제 도보거리와 다릅니다.",fontSize=13.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
         TextButton(onClick={uri.openUri("https://www.openstreetmap.org/copyright")}) { Text("© OpenStreetMap contributors · ODbL") }
         TextButton(onClick={uri.openUri("https://github.com/cheeaun/sgraildata")}) { Text("MRT 데이터 · sgraildata") }
         TextButton(onClick={uri.openUri("https://www.lta.gov.sg/content/ltagov/en/getting_around/public_transport/rail_network.html")}) { Text("LTA 공식 노선 정보 확인") }
@@ -305,7 +329,7 @@ import kotlinx.coroutines.*
     var showCoordinates by rememberSaveable { mutableStateOf(false) }
     val topInset=WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val bottomInset=WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    LaunchedEffect(point) { point?.let { camera.focus(it,15.5) } }
+    LaunchedEffect(point) { point?.let { camera.fit(listOfNotNull(it,candidate?.station?.point)) } }
     Dialog(onDismissRequest={if(vm.picking) vm.picking=false else onClose()},properties=DialogProperties(usePlatformDefaultWidth=false,decorFitsSystemWindows=false)) {
         Surface(Modifier.fillMaxSize(),color=colors.background) {
             Column(Modifier.fillMaxSize().padding(top=topInset,bottom=bottomInset).consumeWindowInsets(PaddingValues(top=topInset,bottom=bottomInset)).imePadding()) {

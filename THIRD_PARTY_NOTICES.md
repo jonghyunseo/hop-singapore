@@ -10,7 +10,7 @@
 
 사용 정책: https://operations.osmfoundation.org/policies/tiles/
 
-앱 고유 User-Agent, 화면 범위만의 요청, 최소 7일 디스크 캐시, 만료 후 조건부 요청을 적용했습니다. 공개 타일 서버의 가용성은 보장되지 않습니다. 배포 규모가 커지면 적절한 지도 공급자로 전환해야 합니다.
+앱 고유 User-Agent, 화면 범위만의 요청, 서버 캐시 헤더를 따르는 100MB 디스크 캐시(헤더가 없으면 7일), 만료 후 조건부 요청을 적용했습니다. 공개 타일 서버의 가용성은 보장되지 않습니다. 배포 규모가 커지면 적절한 지도 공급자로 전환해야 합니다.
 
 ## Singapore rail data
 
@@ -25,7 +25,28 @@ https://www.lta.gov.sg/content/ltagov/en/upcoming_projects/rail_expansion/circle
 
 ## Android 및 Google 지도
 
-앱 코드의 Kotlin/AndroidX/Material 의존성은 각 배포물의 라이선스를 따릅니다. 공유 수신은 Android 표준 ACTION_SEND, 온라인 이름 검색은 Android Geocoder, 도보 안내는 Google Maps URL을 사용합니다. Google 지도 화면을 임베드하거나 Google 계정의 저장 목록을 읽지 않습니다.
+앱 코드의 Kotlin/AndroidX/Material 의존성은 각 배포물의 라이선스를 따릅니다. 공유 수신은 Android 표준 ACTION_SEND, 온라인 이름 검색의 보조 수단으로 Android Geocoder, 도보·대중교통·자동차 길찾기는 Google Maps URL을 사용합니다. Google 지도 화면을 임베드하거나 Google 계정의 저장 목록을 읽지 않습니다.
 
 https://developer.android.com/reference/android/location/Geocoder
 https://developers.google.com/maps/documentation/urls/guide
+
+## MapLibre Native
+
+지도 엔진: MapLibre Native Android 13.7.1. BSD 2-Clause 라이선스.
+
+- 소스와 저작권: https://github.com/maplibre/maplibre-native
+- 배포 라이선스 전문: [docs/licenses/MapLibre-Native.txt](docs/licenses/MapLibre-Native.txt)
+- Android 사용 안내: https://maplibre.org/maplibre-native/android/examples/getting-started/
+
+지도 스타일은 앱 안에서 구성하며 별도 데모 지도·글꼴 서버를 사용하지 않습니다. 역·저장 장소 라벨은 기기 글꼴로 생성합니다.
+
+## Photon
+
+장소 검색·주변 장소·역지오코딩: https://photon.komoot.io
+
+Photon은 OpenStreetMap 기반 검색 서비스입니다. 앱은 명시적인 검색·카테고리 선택·핀 선택에만 호출하고 1초 간격 제한, 24시간 캐시를 적용합니다. 공개 서버의 응답 수와 가용성은 보장되지 않습니다.
+
+- 프로젝트 및 사용 조건: https://github.com/komoot/photon
+- API: https://github.com/komoot/photon/blob/master/docs/api-v1.md
+
+검색 결과의 지리 데이터는 © OpenStreetMap contributors, ODbL입니다. 앱 내 지도와 검색 결과에서 출처를 표시합니다.
