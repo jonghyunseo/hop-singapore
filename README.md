@@ -1,6 +1,6 @@
 # hop — 싱가포르 MRT 여행 앱
 
-Kotlin + Jetpack Compose로 구현한 싱가포르 여행용 Android 앱입니다. 상세 도로 지도 위에 MRT와 여행지를 겹쳐 보고, 장소를 검색하고 저장할 수 있습니다. Blue Hour 테마와 컴팩트한 플로팅 메뉴를 적용했습니다. 실제 앱 소스는 `app/`입니다.
+Kotlin + Jetpack Compose로 구현한 싱가포르 여행용 Android 앱입니다. 다른 앱에서 공유한 여행 정보와 예약 링크를 바로 보관하고, 일정·메모·MRT 지도를 연결합니다. 상세 도로 지도 위에서 장소와 가까운 역을 확인할 수 있습니다. Blue Hour 테마와 컴팩트한 플로팅 메뉴를 적용했습니다. 실제 앱 소스는 `app/`입니다.
 
 ## 설치와 실행
 
@@ -14,7 +14,22 @@ Kotlin + Jetpack Compose로 구현한 싱가포르 여행용 Android 앱입니�
 
 이전 `0.1.0-debug` APK와는 서명이 다릅니다. 개발판이 설치되어 있다면 보관할 장소·메모를 먼저 확인한 뒤 삭제하고 배포판을 설치하세요. 삭제 시 개발판의 로컬 데이터도 삭제됩니다. `0.1.1` 이후 배포판은 같은 서명 키로 업데이트합니다.
 
-<p><img src="docs/images/android-map-v030.png" alt="도로·건물·장소가 보이는 상세 지도와 하차역 카드" width="240"> <img src="docs/images/android-search-v030.png" alt="장소·주소·MRT 검색" width="240"> <img src="docs/images/android-nearby-v030.png" alt="지도 중심 주변 카페 탐색" width="240"></p>
+<p><img src="docs/images/android-inbox-v040.png" alt="공유로 모은 여행 정보" width="240"> <img src="docs/images/android-share-v040.png" alt="공유 즉시 보관과 원문 보기" width="240"> <img src="docs/images/android-itinerary-v040.png" alt="날짜별 여행 일정" width="240"></p>
+
+## 공유로 여행 정보 모으기
+
+**Google 지도·브라우저·예약 앱 → 공유 → hop**. 제목과 텍스트/링크를 즉시 기기에 저장합니다. 좌표 입력이나 네트워크 요청을 기다릴 필요가 없습니다.
+
+- Google 지도 **목록 링크도 그대로 보관**하고 ‘원문 보기’로 엽니다. 목록 전체를 hop 지도 핀으로 변환하는 기능은 아닙니다.
+- 원문은 앱에서 연 브라우저 탭(Custom Tabs)으로 확인합니다. 원본 서비스의 로그인/인터넷이 필요할 수 있으며 일부 링크는 해당 앱으로 이동합니다.
+- ‘일정·메모’에서 날짜·시간, 예약번호, 준비할 것을 기록합니다. 일정은 **싱가포르 현지 시간** 기준입니다.
+- 중요한 예약·링크를 위에 고정하고, 검색하거나 완료 체크합니다. 같은 링크를 다시 공유해도 기존 일정·메모를 유지합니다.
+- ‘장소 연결’에서 기존 저장 장소를 선택하거나 새 장소를 추가해 MRT 지도로 이어집니다. 저장한 장소의 옵션 → ‘여행 일정에 추가’도 가능합니다.
+- 하단 **여행 → 공유함 / 일정 / 장소**. 기존 저장 장소는 ‘장소’에 유지됩니다.
+- 링크를 복사한 경우 **+ → 링크·메모 보관 → 붙여넣기**로 추가할 수 있습니다. 원문 텍스트·메모·일정은 오프라인에서 볼 수 있습니다.
+- 단일 싱가포르 여행 보관함입니다. 이미지/PDF 첨부·OCR·이메일 자동 수집·계정 동기화·동행자 실시간 협업은 포함하지 않습니다.
+
+벤치마크와 화면/데이터 설계: [공유 중심 여행 시스템](docs/travel-system-v0.4.md).
 
 ## 구현한 핵심 기능
 
@@ -29,8 +44,8 @@ Kotlin + Jetpack Compose로 구현한 싱가포르 여행용 Android 앱입니�
 - 역별 400m / 800m / 1.2km 반경 안의 저장 장소를 거리순으로 표시.
 - 장소 저장·수정·메모·방문 체크·검색·방문 필터·삭제와 실행 취소.
 - 원자적 파일 저장. 앱 재실행 후 장소·방문 상태·메모와 선택 설정 복원.
-- Android `ACTION_SEND` 공유 수신, Google Maps 링크 붙여넣기, 장소명 검색, 좌표 입력, 지도 핀 지정.
-- 공유 데이터는 검토 화면을 거쳐 저장. 링크의 지도 카메라 좌표를 장소 좌표로 오인하지 않음.
+- Android `ACTION_SEND` 텍스트/링크 공유 즉시 보관. Google Maps 장소 링크는 필요할 때 지도에 연결. 장소명 검색·좌표 입력·지도 핀도 지원.
+- 공유 원문은 위치와 무관하게 저장하며, 지도 연결 시 실제 위치를 확인. 링크의 지도 카메라 좌표를 장소 좌표로 오인하지 않음.
 - Google Takeout ZIP/CSV와 GeoJSON 파일 가져오기. 목록 이름과 메모를 유지하고, 좌표 없는 항목은 검색·핀으로 보완. 선택 저장, 중복 제외, 미확인 항목 유지.
 - 화면 끝까지 채우는 지도. 하차역 카드는 작게 표시하고 3개 역 비교는 펼쳐서 확인.
 - 라이트·다크·시스템 테마. 측정한 메뉴 높이에 따라 하단 여백을 확보하는 플로팅 메뉴.
@@ -50,7 +65,7 @@ Kotlin + Jetpack Compose로 구현한 싱가포르 여행용 Android 앱입니�
 
 ## 파일 가져오기
 
-**저장한 곳 → Google 지도 즐겨찾기 가져오기** (또는 메뉴에서 같은 항목).
+**메뉴 → 파일에서 가져오기 (고급)** 또는 여행 → 장소 → 파일에서 장소 가져오기. 일상적인 정보 수집에는 위의 공유 방식을 권장합니다.
 
 1. [Google Takeout](https://takeout.google.com/)에서 **Saved(저장됨)**를 선택하고 ZIP으로 내보냅니다. [Google 공식 안내](https://support.google.com/maps/answer/7280933?hl=ko).
 2. hop의 ‘다운로드한 파일 선택’에서 ZIP 또는 압축을 푼 CSV를 고릅니다. 기존 Point GeoJSON도 지원합니다.
@@ -89,7 +104,7 @@ Google 계정 자동 동기화나 목록 공유 링크 전체 가져오기는 �
 .\gradlew.bat '-Djava.library.path=C:\Windows\System32' :app:testDebugUnitTest
 ```
 
-핵심 흐름 검수 기록: [docs/verification.md](docs/verification.md). 반복적인 전체 테스트 대신 거리·반경·공유 좌표·호스트 검증 4개, 가져오기 3개, 길찾기 URL 2개와 실제 에뮬레이터의 핵심 흐름을 점검합니다. `scripts/smoke_android.py`는 테스트 전용 `hop_api36` 에뮬레이터의 초기 6개 장소 상태와 개발용 APK를 기준으로 실행하며 테스트 데이터를 추가합니다. 개인 기기를 대상으로 실행하지 마세요.
+핵심 흐름 검수 기록: [docs/verification.md](docs/verification.md). 반복적인 전체 테스트 대신 거리·반경·공유 좌표·호스트 검증 4개, 가져오기 3개, 길찾기 URL 2개, 여행 공유·중복·일정 3개와 실제 에뮬레이터의 핵심 흐름을 점검합니다. `scripts/smoke_android.py`는 테스트 전용 `hop_api36` 에뮬레이터의 초기 6개 장소 상태와 개발용 APK를 기준으로 실행하며 테스트 데이터를 추가합니다. 개인 기기를 대상으로 실행하지 마세요.
 
 ## 배포 업데이트
 
@@ -112,5 +127,7 @@ Windows 배포 스크립트는 사용자 프로필의 `.android/hop-singapore-re
 | `HopApp.kt`, `Theme.kt` | 네이티브 화면·플로팅 메뉴·테마 |
 | `Imports.kt`, `ImportScreen.kt` | Google Takeout ZIP/CSV/GeoJSON 읽기·검토·위치 보완 |
 | `MainActivity.kt` | Android 공유 수신·위치 요청 |
+| `TravelDomain.kt`, `TravelData.kt` | 여행 정보·원문·일정·중복 처리·원자적 로컬 저장 |
+| `TravelScreen.kt` | 공유함·날짜별 일정·원문 보기·편집·장소 연결 |
 
 원본 데이터와 사용 조건은 `THIRD_PARTY_NOTICES.md`를 참고하세요. 실시간 열차·운임·출구별 접근성·여행 순서 최적화·여러 여행·계정 동기화는 후속 범위입니다.

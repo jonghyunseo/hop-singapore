@@ -100,6 +100,8 @@ class HopViewModel(app: Application) : AndroidViewModel(app) {
     var visitFilter by mutableIntStateOf(0)
     var draft by mutableStateOf<PlaceDraft?>(null)
     var draftError by mutableStateOf<String?>(null)
+    var travelLinkId by mutableStateOf<String?>(null)
+    var linkedTravelResult by mutableStateOf<Pair<String,Place>?>(null)
     var hits by mutableStateOf<List<SearchHit>>(emptyList())
     var busy by mutableStateOf(false); private set
     var picking by mutableStateOf(false)
@@ -140,13 +142,14 @@ class HopViewModel(app: Application) : AndroidViewModel(app) {
     fun delete(place: Place, done: () -> Unit) = mutate({ it.filterNot { p -> p.id == place.id } }) { if(selectedId == place.id) clearSelection(); done() }
     fun restore(place: Place) = mutate({ if(it.any { p -> p.id == place.id }) it else it + place })
     fun beginAdd(shared: String = "", point: GeoPoint? = null) {
+        travelLinkId=null
         importEditingId = null
         resolveJob?.cancel(); busy = false; hits = emptyList(); draftError = null; picking = false
         draft = PlaceDraft(link = shared, latitude = point?.lat?.let { "%.6f".format(Locale.US, it) }.orEmpty(), longitude = point?.lon?.let { "%.6f".format(Locale.US, it) }.orEmpty())
         if(shared.isNotBlank()) resolveShared()
     }
     fun edit(place: Place) { closeDraft(); draft = PlaceDraft(place.name, place.subtitle, place.point.lat.toString(), place.point.lon.toString(), place.memo, editingId = place.id.takeIf { id -> places.any { it.id==id } }) }
-    fun closeDraft() { resolveJob?.cancel(); busy = false; draft = null; picking = false; hits = emptyList(); draftError = null; importEditingId = null }
+    fun closeDraft() { resolveJob?.cancel(); busy = false; draft = null; picking = false; hits = emptyList(); draftError = null; importEditingId = null; travelLinkId=null }
     fun picked(point: GeoPoint) { draft = (draft ?: PlaceDraft()).copy(latitude = "%.6f".format(Locale.US, point.lat), longitude = "%.6f".format(Locale.US, point.lon)); picking = false }
     fun chooseHit(hit: SearchHit) { draft = (draft ?: PlaceDraft()).copy(name = if(importEditingId != null) draft?.name.orEmpty().ifBlank { hit.name } else hit.name, subtitle = hit.address, latitude = hit.point.lat.toString(), longitude = hit.point.lon.toString()); hits = emptyList(); draftError = null }
     fun searchName(name: String) {
@@ -222,10 +225,11 @@ class HopViewModel(app: Application) : AndroidViewModel(app) {
             closeDraft(); return
         }
         val duplicate = places.find { it.id != d.editingId && distanceMetres(it.point, p) < 15 && it.name.equals(d.name.trim(), true) }
-        if(duplicate != null) { closeDraft(); select(duplicate); message = "이미 저장한 장소예요."; return }
+        val linkId=travelLinkId
+        if(duplicate != null) { closeDraft(); select(duplicate); if(linkId!=null) linkedTravelResult=linkId to duplicate; message = "이미 저장한 장소예요."; return }
         val place = Place(d.editingId ?: UUID.randomUUID().toString(), d.name.trim(), d.subtitle, p, d.memo, places.find { it.id == d.editingId }?.visited ?: false)
         busy = true
-        mutate({ list -> if(d.editingId != null) list.map { if(it.id == d.editingId) place else it } else list + place }) { closeDraft(); select(place); message = "${place.name} 저장 완료" }
+        mutate({ list -> if(d.editingId != null) list.map { if(it.id == d.editingId) place else it } else list + place }) { closeDraft(); select(place); if(linkId!=null) linkedTravelResult=linkId to place; message = "${place.name} 저장 완료" }
     }
     fun importPlaces(items: List<Place>, done: (Int, Int) -> Unit) {
         var added = 0; var duplicates = 0

@@ -50,3 +50,9 @@ Photon은 OpenStreetMap 기반 검색 서비스입니다. 앱은 명시적인 �
 - API: https://github.com/komoot/photon/blob/master/docs/api-v1.md
 
 검색 결과의 지리 데이터는 © OpenStreetMap contributors, ODbL입니다. 앱 내 지도와 검색 결과에서 출처를 표시합니다.
+
+## 공유 원문 보기
+
+AndroidX Browser 1.10.0의 Custom Tabs로 사용자가 선택한 http/https 링크를 엽니다. 링크의 원본 콘텐츠는 해당 서비스의 권한·이용 조건을 따릅니다. 앱은 공유된 제목/텍스트/링크를 로컬에 저장하며 원본 페이지를 배경에서 수집하거나 계정 데이터를 자동으로 읽지 않습니다.
+
+https://developer.android.com/jetpack/androidx/releases/browser

@@ -1,4 +1,23 @@
-﻿# Android 검증 기록
+# Android 검증 기록
+
+## 0.4.0 — 2026-10-29
+
+공유 → 즉시 보관 → 원문 보기/일정/지도 연결 흐름을 중심으로 점검했다. 경쟁 앱은 공식 문서로 비교했으며 직접 설치 비교 실험은 하지 않았다.
+
+- 단위 테스트 12개, 실패 0: Core 4 + Import 3 + MapAction 2 + Travel 3. 새 검사는 좌표 없는 공유 저장·중복 키·잘못된 URL·일정 날짜/시간 검증과 정렬을 확인한다.
+- `:app:assembleRelease`, 필수 `lintVitalRelease`, `apksigner verify` 성공. `versionName=0.4.0`, `versionCode=5`. Windows DEX 파일 잠금으로 1회 실패한 빌드는 Gradle daemon 종료 후 성공했다.
+- 전용 `hop_api36` Android 16/API 36 에뮬레이터에서 0.3.0 위에 업데이트 설치, 기존 저장 장소 유지.
+- Android 시스템 공유 시트에 hop이 표시되고 선택하면 보관 완료 상세로 이동하는 것을 실제 UI에서 확인.
+- ACTION_SEND로 링크/제목 수신 → 즉시 보관 표시. LTA 공식 페이지를 Custom Tabs에서 실제로 열어 원문 렌더링 확인.
+- 예약 테스트 정보에 날짜·18:00·메모 저장, 중요 표시, 날짜별 일정 표시. 같은 링크 재공유 시 메모/중요 상태 유지.
+- Google 지도 장소 링크 → 기존 멀라이언 장소 연결 → Raffles Place가 있는 MRT 지도 이동.
+- 앱 강제 종료·재실행 후 공유함 복원. 기존 저장 장소 옵션 → 여행 일정에 추가 → 편집 화면 확인.
+- 삭제 후 실행 취소로 항목 복원. Snackbar 효과가 자기 상태를 먼저 지워 취소되던 문제를 수정하고 재확인.
+- Wi-Fi/모바일 데이터를 끈 상태에서 텍스트 공유 즉시 보관. 검증 후 연결 복원.
+- 라이트/다크·세로/가로·약 376dp 폭/글자 배율 2.0 화면을 캡처해 확인. 저장 정보가 있으면 큰 시작 안내를 숨겨 목록에 공간을 확보.
+- AndroidRuntime 오류 로그에서 크래시 없음. 물리 기기, 모든 공유 앱·Google 개인 목록의 로그인 조합, TalkBack 전체 검사는 범위에 포함하지 않음.
+
+증거: `app/build/test-results/testDebugUnitTest/TEST-app.hop.singapore.*Test.xml`(로컬), `docs/images/android-inbox-v040.png`, `android-share-v040.png`, `android-itinerary-v040.png`, `android-dark-v040.png`, `android-landscape-v040.png`, `android-small-large-text-dark-v040.png`.
 
 ## 0.3.0 — 2026-10-28
 

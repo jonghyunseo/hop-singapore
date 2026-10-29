@@ -18,18 +18,23 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
 
 class MainActivity : ComponentActivity() {
-    private var sharedText by mutableStateOf<String?>(null)
+    private var sharedText by mutableStateOf<Pair<String,String>?>(null)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState); enableEdgeToEdge()
         if(savedInstanceState==null) receive(intent)
         setContent {
             val vm: HopViewModel = viewModel()
-            LaunchedEffect(sharedText) { sharedText?.let { vm.beginAdd(it); sharedText=null } }
-            HopTheme(vm.theme) { HopApp(vm) }
+            val travel: TravelViewModel = viewModel()
+            LaunchedEffect(sharedText) { sharedText?.let { travel.capture(it.first,it.second); vm.changeTab(1); sharedText=null } }
+            HopTheme(vm.theme) { HopApp(vm,travel) }
         }
     }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); receive(intent) }
-    private fun receive(intent: Intent?) { if(intent?.action == Intent.ACTION_SEND && intent.type?.startsWith("text/")==true) sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)?.take(16000) }
+    private fun receive(intent: Intent?) { if(intent?.action == Intent.ACTION_SEND && intent.type?.startsWith("text/")==true) {
+        val body=intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString().orEmpty().take(16000)
+        val subject=(intent.getStringExtra(Intent.EXTRA_SUBJECT) ?: intent.getStringExtra(Intent.EXTRA_TITLE)).orEmpty().take(160)
+        if(body.isNotBlank() || subject.isNotBlank()) sharedText=body to subject
+    } }
 }
 
 @Suppress("MissingPermission","DEPRECATION")

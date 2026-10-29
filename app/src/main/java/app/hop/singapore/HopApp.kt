@@ -44,7 +44,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.*
 
-@Composable fun HopApp(vm: HopViewModel) {
+@Composable fun HopApp(vm: HopViewModel,travel:TravelViewModel) {
     val context=LocalContext.current; val scope=rememberCoroutineScope(); val colors=MaterialTheme.colorScheme
     SideEffect { (context as? android.app.Activity)?.let { activity -> androidx.core.view.WindowCompat.getInsetsController(activity.window,activity.window.decorView).apply { isAppearanceLightStatusBars=colors.background.luminance()>.3f; isAppearanceLightNavigationBars=colors.background.luminance()>.3f } } }
     val snackbar=remember { SnackbarHostState() }; val camera=rememberMapCamera()
@@ -57,6 +57,9 @@ import kotlinx.coroutines.*
     var location by remember { mutableStateOf<GeoPoint?>(null) }; var locating by remember { mutableStateOf(false) }
     var following by remember { mutableStateOf(false) }
     var showImportHelp by rememberSaveable { mutableStateOf(false) }
+    var showShareHelp by rememberSaveable { mutableStateOf(false) }
+    var showAddMenu by rememberSaveable { mutableStateOf(false) }
+    var linkingTravelItem by remember { mutableStateOf<TravelItem?>(null) }
     var previousTab by rememberSaveable { mutableIntStateOf(0) }
     var discard by remember { mutableStateOf(false) }
     val selected=vm.selected; val rail=vm.rail; val stationPreview=vm.stationPreview
@@ -77,7 +80,10 @@ import kotlinx.coroutines.*
     }
     val filePicker=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if(uri!=null) vm.loadImport(uri) }
     FollowLocation(following && vm.tab==0 && vm.draft==null && !showMapSearch) { point -> location=point; camera.focus(point,camera.zoom.coerceIn(14.0,18.0)) }
-    LaunchedEffect(vm.message) { vm.message?.let { message -> vm.message=null; snackbar.showSnackbar(message) } }
+    LaunchedEffect(vm.message) { vm.message?.let { message -> snackbar.showSnackbar(message); if(vm.message==message) vm.message=null } }
+    LaunchedEffect(travel.message) { travel.message?.let { message -> snackbar.showSnackbar(message); if(travel.message==message) travel.message=null } }
+    LaunchedEffect(travel.deleted) { travel.deleted?.let { item -> snackbar.currentSnackbarData?.dismiss(); if(snackbar.showSnackbar("${item.title} 삭제됨","실행 취소",duration=SnackbarDuration.Long)==SnackbarResult.ActionPerformed) travel.restore(item); if(travel.deleted==item) travel.deleted=null } }
+    LaunchedEffect(vm.linkedTravelResult) { vm.linkedTravelResult?.let { (id,place)->vm.linkedTravelResult=null; travel.attach(id,place); vm.changeTab(1); travel.section=0 } }
     LaunchedEffect(selected?.id,candidate?.station?.id) {
         if(selected!=null) {
             val p=candidate?.station?.point ?: selected.point
@@ -117,7 +123,7 @@ import kotlinx.coroutines.*
                             Text("hop",Modifier.padding(end=16.dp),fontSize=22.sp,fontWeight=FontWeight.Bold,color=colors.primary,letterSpacing=(-1).sp)
                         }
                     }
-                    FilledIconButton(onClick={vm.beginAdd()},modifier=Modifier.size(52.dp),colors=IconButtonDefaults.filledIconButtonColors(containerColor=colors.tertiaryContainer,contentColor=colors.onTertiaryContainer)) { Icon(Icons.Rounded.Add,"장소 추가") }
+                    FilledIconButton(onClick={showAddMenu=true},modifier=Modifier.size(52.dp),colors=IconButtonDefaults.filledIconButtonColors(containerColor=colors.tertiaryContainer,contentColor=colors.onTertiaryContainer)) { Icon(Icons.Rounded.Add,"여행에 추가") }
                 }
                 Row(Modifier.align(Alignment.TopStart).statusBarsPadding().padding(top=70.dp,start=16.dp,end=16.dp).horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                     PlaceCategory.entries.forEach { category -> FilterChip(selected=vm.mapCategory==category,onClick={following=false;vm.searchNearby(category,camera.point)},label={Text(category.title)},shape=CircleShape,colors=FilterChipDefaults.filterChipColors(containerColor=colors.surface)) }
@@ -142,12 +148,12 @@ import kotlinx.coroutines.*
             } else Column(Modifier.fillMaxSize().statusBarsPadding()) {
                 Row(Modifier.fillMaxWidth().padding(horizontal=8.dp),verticalAlignment=Alignment.CenterVertically) {
                     IconButton(onClick={showSettings=true}) { Icon(Icons.Rounded.Menu,"메뉴") }
-                    Text(if(vm.tab==1) "저장한 곳" else "역별로 둘러보기",Modifier.weight(1f),fontSize=20.sp,fontWeight=FontWeight.SemiBold)
-                    IconButton(onClick={showImportHelp=true}) { Icon(Icons.Rounded.FileDownload,"Google 지도 즐겨찾기 가져오기") }
-                    IconButton(onClick={vm.beginAdd()}) { Icon(Icons.Rounded.Add,"장소 추가") }
+                    Text(if(vm.tab==1) "싱가포르 여행" else "역별로 둘러보기",Modifier.weight(1f),fontSize=20.sp,fontWeight=FontWeight.SemiBold)
+                    IconButton(onClick={showShareHelp=true}) { Icon(Icons.Rounded.Share,"공유로 보관하는 방법") }
+                    IconButton(onClick={showAddMenu=true}) { Icon(Icons.Rounded.Add,"여행에 추가") }
                 }
                 when(vm.tab) {
-                    1 -> SavedScreen(vm,Modifier.weight(1f),dockReserve,::selectPlace,onImport={showImportHelp=true},onDelete={p -> vm.delete(p) { scope.launch { if(snackbar.showSnackbar("${p.name} 삭제됨","실행 취소",duration=SnackbarDuration.Long)==SnackbarResult.ActionPerformed) vm.restore(p) } } })
+                    1 -> TravelScreen(travel,vm,Modifier.weight(1f),dockReserve,::selectPlace,onImport={showImportHelp=true},onDelete={p -> vm.delete(p) { scope.launch { if(snackbar.showSnackbar("${p.name} 삭제됨","실행 취소",duration=SnackbarDuration.Long)==SnackbarResult.ActionPerformed) vm.restore(p) } } })
                     2 -> GroupsScreen(vm,rail,Modifier.weight(1f),dockReserve,onStationPicker={showStationPicker=true},onPlace=::selectPlace)
                 }
             }
@@ -164,7 +170,23 @@ import kotlinx.coroutines.*
     if(showResults) NearbyResultsSheet(vm,camera.point,{showResults=false},::selectPlace)
     actionPlace?.let { p -> PlaceActionsSheet(p,rail?.let { nearest(p.point,it.stations).firstOrNull()?.station },{actionPlace=null}) }
     if(showStationPicker && rail!=null) StationPicker(rail.stations,{showStationPicker=false}) { vm.chooseStation(it); showStationPicker=false }
-    if(showSettings) Settings(vm,onDismiss={showSettings=false},onImport={showSettings=false;showImportHelp=true})
+    if(showSettings) Settings(vm,onDismiss={showSettings=false},onImport={showSettings=false;showImportHelp=true},onShare={showSettings=false;showShareHelp=true})
+    if(showShareHelp) ShareHelpSheet { showShareHelp=false }
+    if(showAddMenu) ModalBottomSheet(onDismissRequest={showAddMenu=false},sheetState=rememberModalBottomSheetState(skipPartiallyExpanded=true)) {
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+            Text("여행에 추가",fontSize=24.sp,fontWeight=FontWeight.SemiBold)
+            Button(onClick={showAddMenu=false;vm.changeTab(1);travel.section=0;travel.beginNew()},modifier=Modifier.fillMaxWidth().heightIn(min=52.dp)) { Icon(Icons.Rounded.MoveToInbox,null); Spacer(Modifier.width(8.dp)); Text("링크·메모 보관") }
+            OutlinedButton(onClick={showAddMenu=false;vm.beginAdd()},modifier=Modifier.fillMaxWidth().heightIn(min=52.dp)) { Icon(Icons.Rounded.AddLocationAlt,null); Spacer(Modifier.width(8.dp)); Text("지도에 장소 추가") }
+            TextButton(onClick={showAddMenu=false;showShareHelp=true},modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text("다른 앱에서 공유하는 방법") }
+        }
+    }
+    if(vm.draft==null && travel.editing==null) TravelDetail(travel,vm,::selectPlace) { linkingTravelItem=it }
+    linkingTravelItem?.let { item->TravelPlacePicker(item,vm.places,onDismiss={linkingTravelItem=null;travel.selectedId=item.id},onPick={place->linkingTravelItem=null;travel.attach(item.id,place)},onNew={
+        linkingTravelItem=null
+        vm.beginAdd(if(TravelShare.isMaps(item.url) && !TravelShare.isList(item.url)) item.content.ifBlank { item.url } else "")
+        vm.travelLinkId=item.id; vm.draft=vm.draft?.copy(name=item.title,memo=item.note)
+    }) }
+    TravelEditor(travel)
     if(showImportHelp) GoogleImportHelp(onDismiss={showImportHelp=false},onChooseFile={showImportHelp=false;filePicker.launch(arrayOf("text/*","application/json","application/geo+json","application/zip","application/x-zip-compressed","application/octet-stream"))},onShare={showImportHelp=false;vm.beginAdd()})
     if(vm.importReview!=null && vm.draft==null) GoogleImportReview(vm)
     val draft=vm.draft
@@ -179,7 +201,7 @@ import kotlinx.coroutines.*
     val colors=MaterialTheme.colorScheme
     Surface(modifier,shape=RoundedCornerShape(40.dp),color=colors.surface,shadowElevation=12.dp,tonalElevation=0.dp) {
         Row(Modifier.padding(6.dp),horizontalArrangement=Arrangement.spacedBy(4.dp)) {
-            listOf(Triple(0,Icons.Rounded.Map,"지도"),Triple(1,Icons.Rounded.BookmarkBorder,"저장한 곳"),Triple(2,Icons.Rounded.Train,"역별")).forEach { (index,icon,label) ->
+            listOf(Triple(0,Icons.Rounded.Map,"지도"),Triple(1,Icons.Rounded.Luggage,"여행"),Triple(2,Icons.Rounded.Train,"역별")).forEach { (index,icon,label) ->
                 Surface(onClick={onTab(index)},modifier=Modifier.weight(1f).semantics { selected=tab==index; role=Role.Tab },shape=CircleShape,color=if(tab==index) colors.primary else colors.surface,contentColor=if(tab==index) colors.onPrimary else colors.onSurfaceVariant) {
                     Row(Modifier.heightIn(min=48.dp).padding(horizontal=6.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp,Alignment.CenterHorizontally)) { Icon(icon,null,Modifier.size(20.dp)); Text(label,fontSize=12.sp,fontWeight=if(tab==index) FontWeight.Bold else FontWeight.Medium) }
                 }
@@ -245,11 +267,10 @@ import kotlinx.coroutines.*
     }
 }
 
-@Composable private fun SavedScreen(vm: HopViewModel,modifier: Modifier,bottom:Dp,onPlace:(Place)->Unit,onImport:()->Unit,onDelete:(Place)->Unit) {
+@Composable fun SavedScreen(vm: HopViewModel,modifier: Modifier,bottom:Dp,onPlace:(Place)->Unit,onImport:()->Unit,onDelete:(Place)->Unit,onPlan:(Place)->Unit) {
     val colors=MaterialTheme.colorScheme
     val visible=vm.places.filter { (vm.visitFilter==0 || (vm.visitFilter==1 && !it.visited) || (vm.visitFilter==2 && it.visited)) && (it.name+it.subtitle+it.memo).contains(vm.query,true) }
     LazyColumn(modifier,contentPadding=PaddingValues(start=16.dp,end=16.dp,top=4.dp,bottom=bottom),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-        item { Surface(onClick=onImport,shape=RoundedCornerShape(20.dp),color=colors.primaryContainer) { Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=12.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)) { Icon(Icons.Rounded.FileDownload,null,tint=colors.primary); Column(Modifier.weight(1f)) { Text("Google 지도 즐겨찾기 가져오기",fontWeight=FontWeight.SemiBold,fontSize=14.sp); Text("Takeout ZIP · CSV · GeoJSON",fontSize=12.sp,color=colors.onSurfaceVariant) }; Icon(Icons.Rounded.ChevronRight,null) } } }
         item { OutlinedTextField(vm.query,{vm.query=it},modifier=Modifier.fillMaxWidth(),shape=CircleShape,label={Text("장소·메모 검색")},leadingIcon={Icon(Icons.Rounded.Search,null)},singleLine=true) }
         item { FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) { listOf("전체","미방문","방문").forEachIndexed { i,label -> FilterChip(vm.visitFilter==i,{vm.visitFilter=i},{Text(label)},modifier=Modifier.heightIn(min=48.dp)) } } }
         if(visible.isEmpty()) item { Text("저장한 장소가 없어요. + 버튼으로 여행지를 추가해 보세요.",Modifier.padding(vertical=24.dp),color=colors.onSurfaceVariant) }
@@ -265,13 +286,14 @@ import kotlinx.coroutines.*
                         }
                         Checkbox(p.visited,{vm.toggleVisited(p)},modifier=Modifier.semantics { contentDescription="${p.name} 방문 완료" })
                         var menu by remember { mutableStateOf(false) }
-                        Box { IconButton(onClick={menu=true}) { Icon(Icons.Rounded.MoreVert,"${p.name} 옵션") }; DropdownMenu(expanded=menu,onDismissRequest={menu=false}) { DropdownMenuItem(text={Text("메모·수정")},onClick={menu=false;vm.edit(p)}); DropdownMenuItem(text={Text("삭제")},onClick={menu=false;onDelete(p)}) } }
+                        Box { IconButton(onClick={menu=true}) { Icon(Icons.Rounded.MoreVert,"${p.name} 옵션") }; DropdownMenu(expanded=menu,onDismissRequest={menu=false}) { DropdownMenuItem(text={Text("여행 일정에 추가")},onClick={menu=false;onPlan(p)}); DropdownMenuItem(text={Text("메모·수정")},onClick={menu=false;vm.edit(p)}); DropdownMenuItem(text={Text("삭제")},onClick={menu=false;onDelete(p)}) } }
                     }
 
                 }
             }
         }
         item { OutlinedButton(onClick={vm.beginAdd()},modifier=Modifier.fillMaxWidth().heightIn(min=52.dp)) { Icon(Icons.Rounded.Add,null); Text("장소 추가") } }
+        item { TextButton(onClick=onImport,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text("파일에서 장소 가져오기") } }
     }
 }
 
@@ -303,15 +325,15 @@ import kotlinx.coroutines.*
     }
 }
 
-@Composable private fun Settings(vm:HopViewModel,onDismiss:()->Unit,onImport:()->Unit) {
+@Composable private fun Settings(vm:HopViewModel,onDismiss:()->Unit,onImport:()->Unit,onShare:()->Unit) {
     val uri=LocalUriHandler.current
     ModalBottomSheet(onDismissRequest=onDismiss,containerColor=MaterialTheme.colorScheme.surface) { Column(Modifier.fillMaxWidth().padding(horizontal=20.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
         Text("나의 싱가포르",fontSize=25.sp,fontWeight=FontWeight.SemiBold)
         Text("장소는 이 기기에 저장돼요. 로그인 없이 사용할 수 있어요.",fontSize=14.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
         Text("화면 테마",fontWeight=FontWeight.SemiBold)
         FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) { listOf("system" to "시스템","light" to "라이트","dark" to "다크").forEach { (value,label) -> FilterChip(vm.theme==value,{vm.changeTheme(value)},{Text(label)},modifier=Modifier.heightIn(min=48.dp)) } }
-        OutlinedButton(onClick=onImport,modifier=Modifier.fillMaxWidth().heightIn(min=52.dp)) { Icon(Icons.Rounded.FileOpen,null); Spacer(Modifier.width(8.dp)); Text("Google 지도 즐겨찾기 가져오기") }
-        Text("Google Takeout의 저장 목록과 메모를 가져와요. 위치가 없는 장소도 검색·핀으로 확인할 수 있어요.",fontSize=13.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        Button(onClick=onShare,modifier=Modifier.fillMaxWidth().heightIn(min=52.dp)) { Icon(Icons.Rounded.Share,null); Spacer(Modifier.width(8.dp)); Text("공유로 여행 정보 보관하기") }
+        OutlinedButton(onClick=onImport,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Icon(Icons.Rounded.FileOpen,null); Spacer(Modifier.width(8.dp)); Text("파일에서 가져오기 (고급)") }
         HorizontalDivider()
         Text("MRT ${vm.rail?.stations?.size ?: 0}개 역 · 데이터 기준 2026.10.28",fontSize=13.sp)
         Text("상세 도로 지도를 기본으로 사용합니다. 지도 표시 설정에서 노선·저장 장소를 켜고 끌 수 있어요. 상세 지도와 주변 검색은 인터넷이 필요합니다. 거리 계산은 역 대표점 기준이며 실제 도보거리와 다릅니다.",fontSize=13.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
